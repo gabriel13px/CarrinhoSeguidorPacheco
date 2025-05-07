@@ -4,12 +4,6 @@
 #include <SPIFFS.h>
 #include "esp_timer.h"  
 #include "esp_task_wdt.h"
-void delay_us_custom(uint64_t us) {
-  uint64_t start = esp_timer_get_time();
-  while ((esp_timer_get_time() - start) < us) {
-    esp_task_wdt_reset(); 
-  }
-}
 File audio;
 bool tocando = false;
 bool parar = false;
@@ -18,7 +12,7 @@ String musicaSelecionada = "/audio1.wav";
 int pinoDAC = 26;
 int contadorwachdogs = 0;
 
-int estadoLed= 2;
+int estadoLed= 1;
 
 
 QTRSensors qtr;
@@ -76,7 +70,7 @@ void LedRGB(int r, int g, int b, int tempo,int loop);
 void pararMusica();
 void tarefaMusica(void*param);
 void tarefaRGB(void*param);
-void rainbowEffect();
+void delay_us_custom(uint64_t us);
 void setup(){
   SPIFFS.begin(true);
   Serial.begin(115200);
@@ -93,7 +87,7 @@ void setup(){
 
   qtr.setTypeRC();
   qtr.setSensorPins((const uint8_t[]){17,18,13,14,27,25,33,32}, QuantSensores);
-  qtr.setEmitterPin(16); // IR Pin
+  qtr.setEmitterPin(16); 
 
   //setup pinos dos motores
   ledcAttachPin(AHorario, 0);
@@ -111,6 +105,9 @@ void setup(){
    pinMode(botaoCalibracao, INPUT_PULLUP);
   
   frente_freio(0,0);
+  LedRGB(255, 0, 0,0,1);
+  tocar = true;
+  musicaSelecionada = "/audio1.wav";
 //-----------------------multitarefas------------------
 xTaskCreatePinnedToCore(
   tarefaRGB,
@@ -127,11 +124,7 @@ xTaskCreatePinnedToCore(
     NULL,
     1,
     &musicaTaskHandle,
-    0); 
-
-     tocar = true;
-     musicaSelecionada = "/audio1.wav";
-    
+    0);     
 }
 
 
@@ -140,11 +133,24 @@ xTaskCreatePinnedToCore(
 void loop(){
   // para a musica caso esteja no bluetooth
   if (!SerialBT.hasClient()) {
+    if(calibracaoAtiva == false) {
+      estadoLed = 1;
+      LedRGB(255, 0, 0,0,1);
+    }else{
+      if(OnOff == true){
+        estadoLed = 2;
+      }else{
+        estadoLed = 1;
+      LedRGB(0, 255, 0,0,1);
+      }
+    }
     if (eTaskGetState(musicaTaskHandle) == eSuspended) {
       vTaskResume(musicaTaskHandle); 
       Serial.println("Bluetooth desconectado - Retomando a música.");
     }
   } else {
+    estadoLed = 1;
+    LedRGB(0, 255, 0,0,1);
     if (eTaskGetState(musicaTaskHandle) != eSuspended) {
       vTaskSuspend(musicaTaskHandle);  
       Serial.println("Bluetooth pareado - Suspendendo a música.");
@@ -152,12 +158,12 @@ void loop(){
   }
 
   //botão calibração
-  if(digitalRead(botaoCalibracao) == LOW && OnOff ==false) {
+  if(digitalRead(botaoCalibracao) == LOW && OnOff ==false && ManualPid == 0) {
     calibracao();
   }
-  //verifica se o bluetooth está conectado e faz a troca das constantes outroca para o modo manual
+  //verifica se o bluetooth está conectado e faz a troca das constantes ou troca para o modo manual
   if(SerialBT.available()){
-    String EntradaSerial = SerialBT.readStringUntil(' '); // Lê até Enter
+    String EntradaSerial = SerialBT.readStringUntil(' '); 
     Serial.println("Recebido: " + EntradaSerial);
     // SerialBT.println("Recebido: " + EntradaSerial);
     EntradaSerial.trim();
@@ -266,7 +272,7 @@ void loop(){
     OnOff = !OnOff;
     if(OnOff == true) {
       //tempo até o carro ligar
-      // PiscaPisca(400, 4);
+      estadoLed = 1;
       LedRGB(255,0,0,300,3);
       LedRGB(255,127,0,300,1);
       LedRGB(0,255,0,300,1);
@@ -276,7 +282,7 @@ void loop(){
     else {
       
       //tempo até o carro desligar
-      // PiscaPisca(200, 2);
+      estadoLed = 1;
       LedRGB(255,0,0,200,2);
       Serial.println("corrida Acabou");
       // SerialBT.println("corrida Acabou");
@@ -285,14 +291,22 @@ void loop(){
 
   //controle liga e desliga do carro
   if (OnOff == true&& ManualPid == 0&& calibracaoAtiva == true) {
+    //musicaSelecionada = "/Corrida.wav";
+    tocar = true;
     Controle_PID();
   }else{
     if (ManualPid == 0) {
       frente_freio(0, 0);
+      //pararMusica();
     }
   }
 }
-
+void delay_us_custom(uint64_t us) {
+  uint64_t start = esp_timer_get_time();
+  while ((esp_timer_get_time() - start) < us) {
+    esp_task_wdt_reset(); 
+  }
+}
 void tarefaMusica(void*param){
   while (true) {
     if (tocar && !tocando) {
@@ -303,7 +317,7 @@ void tarefaMusica(void*param){
         continue;
       }
 
-      audio.seek(45);  // Pula cabeçalho WAV
+      audio.seek(45); 
       tocando = true;
       parar = false;
 
@@ -313,7 +327,7 @@ void tarefaMusica(void*param){
         delay_us_custom(85);
         if (++contadorwachdogs >= 100) {
           contadorwachdogs = 0;
-          vTaskDelay(1);  // Cede tempo ao sistema
+          vTaskDelay(1);  
         }
       }
 
@@ -323,7 +337,7 @@ void tarefaMusica(void*param){
       Serial.println(" Fim da música");
     }
 
-     vTaskDelay(10 / portTICK_PERIOD_MS); // Pequeno delay para liberar CPU
+     vTaskDelay(10 / portTICK_PERIOD_MS); 
   }
 }
 
@@ -331,31 +345,61 @@ void tarefaRGB(void*param){
   while (true) {
     switch (estadoLed) {
     {
-    case 1:
-      while (estadoLed == 1) {
-        // modo de led configuração manual
+      case 0: //estado desligado
+      while (estadoLed == 0) {
+        LedRGB(0, 0, 0,0,1);
         vTaskDelay(10 / portTICK_PERIOD_MS); 
       }
       break;
-    case 2:
+    case 1: // estado configuração manual
+      while (estadoLed == 1) {
+        
+        vTaskDelay(10 / portTICK_PERIOD_MS); 
+      }
+      break;
+    case 2: //rainbow
     while (estadoLed == 2) {
-      rainbowEffect();
+      int rr, gg, bb;
+  for (int hue = 0; hue < 360; hue++) {
+    if (estadoLed != 2) break;
+
+    float rad = hue * 3.14159 / 180.0;
+    rr = (int)((sin(rad) + 1) * 127.5);
+    gg = (int)((sin(rad + 2.09439) + 1) * 127.5);
+    bb = (int)((sin(rad + 4.18878) + 1) * 127.5);
+
+    LedRGB(rr, gg, bb, 0, 1); 
+    vTaskDelay(5 / portTICK_PERIOD_MS); 
+  }
     }
       
       break;
       
     
-    default:
-    LedRGB(0, 0, 0,0,1);
-      break;
+      case 3: //estado pulsar calibração
+      while (estadoLed == 3) {
+        // Aumenta brilho do azul
+        for (int i = 0; i <= 255; i += 5) {
+          if (estadoLed != 3) break;
+          LedRGB(0, 0, i, 0, 1);
+          vTaskDelay(10 / portTICK_PERIOD_MS);
+        }
+    
+        // Diminui brilho do azul
+        for (int i = 255; i >= 0; i -= 5) {
+          if (estadoLed != 3) break;
+          LedRGB(0, 0, i, 0, 1);
+          vTaskDelay(10 / portTICK_PERIOD_MS);
+        }
+      }
     }
-    vTaskDelay(10 / portTICK_PERIOD_MS); // Pequeno delay para liberar CPU
+    vTaskDelay(10 / portTICK_PERIOD_MS); 
   }
 }
 }
 void pararMusica() {
   parar = true;
-  delay(10); // Garante que a outra tarefa possa sair do while
+  delay(10); 
   if (audio) audio.close();
   tocando = false;
   Serial.println(" Música parada");
@@ -395,6 +439,9 @@ int ValorMaximoSensores = SensorValores[0]+SensorValores[1]+SensorValores[2]+Sen
 if(ValorMaximoSensores == 7000){
   
 }
+//musicaSelecionada = "/Chegada.wav";
+// tocar = true;
+//PararMusica();
 //--------------------------------------------------------
 int erro = 3500 - posicao;
 //Serial.println(posicao);
@@ -427,18 +474,16 @@ Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
 
 
 void calibracao() {
-   estadoLed = 1;
+   estadoLed = 3;
   Serial.println("Calibrando...");
   // SerialBT.println("Calibrando...");
-  LedRGB(255, 0, 0,0,1);
   for (uint16_t i = 0; i < 400; i++) {
     qtr.calibrate();
   }
   Serial.println("Calibracao concluida");
   // SerialBT.println("Calibracao concluida");
-  // delay(1000);
-  LedRGB(0, 0, 0,0,1);
-  estadoLed = 2;
+  estadoLed = 1;
+  LedRGB(0, 255, 0,0,1);
   calibracaoAtiva = true;
 }
 
@@ -462,17 +507,3 @@ void LedRGB(int r, int g, int b, int tempo,int loop) {
   
 }
 
-void rainbowEffect() {
-  int rr, gg, bb;
-  for (int hue = 0; hue < 360; hue++) {
-    if (estadoLed != 2) break;
-
-    float rad = hue * 3.14159 / 180.0;
-    rr = (int)((sin(rad) + 1) * 127.5);
-    gg = (int)((sin(rad + 2.09439) + 1) * 127.5);
-    bb = (int)((sin(rad + 4.18878) + 1) * 127.5);
-
-    LedRGB(rr, gg, bb, 0, 1); 
-    vTaskDelay(5 / portTICK_PERIOD_MS); 
-  }
-}
