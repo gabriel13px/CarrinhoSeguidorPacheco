@@ -1,9 +1,31 @@
 #include <Arduino.h>
 #include <QTRSensors.h>
 #include "BluetoothSerial.h"
+#include <SPIFFS.h>
+#include "esp_timer.h"  
+#include "esp_task_wdt.h"
+void delay_us_custom(uint64_t us) {
+  uint64_t start = esp_timer_get_time();
+  while ((esp_timer_get_time() - start) < us) {
+    esp_task_wdt_reset(); 
+  }
+}
+File audio;
+bool tocando = false;
+bool parar = false;
+bool tocar = false;
+String musicaSelecionada = "/audio1.wav";
+int pinoDAC = 26;
+int contadorwachdogs = 0;
+
+int estadoLed= 2;
+
+
 QTRSensors qtr;
 const uint8_t QuantSensores = 8;
 uint16_t SensorValores[QuantSensores];
+BluetoothSerial SerialBT;
+
 float Kp = 0.64;
 float Ki = 0;
 float Kd = 0.54;
@@ -11,11 +33,14 @@ int P;
 int I;
 int D;
 int UltimoErro = 0;
+
 boolean OnOff = false;
 boolean calibracaoAtiva = false;
-BluetoothSerial SerialBT;
 int ManualPid = 0;// 0 = PID, 1 = Manual
+
 int TempoParada = 300;
+
+
 
  uint8_t VelocidadeMaximaA = 224;
  uint8_t VelocidadeMaximaB = 224;
@@ -24,8 +49,8 @@ int TempoParada = 300;
  
 
 // os sensores devem ser colocados na ordem
-//17,18,13,14,27,26,25,33 gpios usados sensores  -entrada digital
-//32 para buzzer -saida pwm
+//17,18,13,14,27,25,33,32 gpios usados sensores -entrada digital
+//26 para buzzer -saida pwm
 //5 para botao - input pullup
 //2,15,4 para led - saida pwm
 //19,21,22,23 para ponte H - saidas pwm
@@ -35,25 +60,27 @@ int AHorario =19;// esquerda horario
 int AAntiHora =21;//esquerda anti horario
 int BHorario =22;//direita horario 
 int BAntiHora  =23;//direita anti horario
-//int LedIndicador = 2;
 
 int LedRed = 15;
 int LedGreen = 2;
 int LedBlue = 4;
 
 int botao = 5; 
-
 int botaoCalibracao = 12;
-
+TaskHandle_t musicaTaskHandle = NULL;
 void calibracao();
 void frente_freio(int motorA, int motorB);
 void Controle_PID();
 void PiscaPisca(int tempo, int vezes);
 void LedRGB(int r, int g, int b, int tempo,int loop);
-
+void pararMusica();
+void tarefaMusica(void*param);
+void tarefaRGB(void*param);
+void rainbowEffect();
 void setup(){
+  SPIFFS.begin(true);
   Serial.begin(115200);
-  SerialBT.begin("Pacheco"); 
+   SerialBT.begin("Pacheco"); 
   //setup canais dos motores
   ledcSetup(0, 5000, 8);
   ledcSetup(1, 5000, 8);
@@ -65,7 +92,7 @@ void setup(){
   ledcSetup(6, 5000, 8);
 
   qtr.setTypeRC();
-  qtr.setSensorPins((const uint8_t[]){17,18,13,14,27,26,25,33}, QuantSensores);
+  qtr.setSensorPins((const uint8_t[]){17,18,13,14,27,25,33,32}, QuantSensores);
   qtr.setEmitterPin(16); // IR Pin
 
   //setup pinos dos motores
@@ -82,20 +109,49 @@ void setup(){
 
    pinMode(botao, INPUT_PULLUP);
    pinMode(botaoCalibracao, INPUT_PULLUP);
-  // pinMode(LedIndicador, OUTPUT);
-  delay(500);
   
-  // boolean Espera = false;
-  // while (Espera == false) {
-  //   if(digitalRead(botao) == LOW) {
-  //     calibracao();
-  //     Espera = true;
-  //   }
-  // }
   frente_freio(0,0);
+//-----------------------multitarefas------------------
+xTaskCreatePinnedToCore(
+  tarefaRGB,
+  "tarefaRGB",  
+  2048,
+  NULL,
+  1,
+  NULL,
+  1); // Core 1
+  xTaskCreatePinnedToCore(
+    tarefaMusica,
+    "tarefaMusica",   
+    1900,
+    NULL,
+    1,
+    &musicaTaskHandle,
+    0); 
+
+     tocar = true;
+     musicaSelecionada = "/audio1.wav";
+    
 }
 
+
+
+
 void loop(){
+  // para a musica caso esteja no bluetooth
+  if (!SerialBT.hasClient()) {
+    if (eTaskGetState(musicaTaskHandle) == eSuspended) {
+      vTaskResume(musicaTaskHandle); 
+      Serial.println("Bluetooth desconectado - Retomando a música.");
+    }
+  } else {
+    if (eTaskGetState(musicaTaskHandle) != eSuspended) {
+      vTaskSuspend(musicaTaskHandle);  
+      Serial.println("Bluetooth pareado - Suspendendo a música.");
+    }
+  }
+
+  //botão calibração
   if(digitalRead(botaoCalibracao) == LOW && OnOff ==false) {
     calibracao();
   }
@@ -112,11 +168,11 @@ void loop(){
       if (modo == "MA") {
         ManualPid = 1;
         Serial.println("Modo Manual ativado");
-        SerialBT.println("Modo Manual ativado");
+        // SerialBT.println("Modo Manual ativado");
       } else if (modo == "PI") {
         ManualPid = 0;
         Serial.println("Modo PID ativado");
-        SerialBT.println("Modo PID ativado");
+        // SerialBT.println("Modo PID ativado");
       }
     }
     
@@ -143,7 +199,7 @@ void loop(){
       Kd = kdStr.toFloat();
 
       Serial.printf("Constantes atualizadas:\nKp = %.2f\nKi = %.2f\nKd = %.2f\n", Kp, Ki, Kd);
-      SerialBT.printf("Constantes atualizadas:\nKp = %.2f\nKi = %.2f\nKd = %.2f\n", Kp, Ki, Kd);
+      // SerialBT.printf("Constantes atualizadas:\nKp = %.2f\nKi = %.2f\nKd = %.2f\n", Kp, Ki, Kd);
     } 
     // leitura e modo manual
     if (ManualPid == 1 && EntradaSerial.length() >= 3) {
@@ -156,7 +212,7 @@ void loop(){
         case 'F': // Frente
           frente_freio(VelocidadeMaximaA, VelocidadeMaximaB);
           Serial.println("Frente");
-          SerialBT.println("Frente");
+          // SerialBT.println("Frente");
 
           if (Del > 0) {
             delay(Del);
@@ -167,7 +223,7 @@ void loop(){
         case 'T': // Trás
           frente_freio(-VelocidadeMaximaA, -VelocidadeMaximaB);
           Serial.println("Tras");
-          SerialBT.println("Tras");
+          // SerialBT.println("Tras");
           if (Del > 0) {
             delay(Del);
             frente_freio(0, 0);
@@ -178,7 +234,7 @@ void loop(){
         case 'L': // Esquerda
         frente_freio(VelocidadeMaximaA, -VelocidadeMaximaB);
           Serial.println("Esquerda");
-          SerialBT.println("Esquerda");
+          // SerialBT.println("Esquerda");
           if (Del > 0) {
             delay(Del);
             frente_freio(0, 0);
@@ -188,7 +244,7 @@ void loop(){
         case 'R': // Direita
           frente_freio(-VelocidadeMaximaA, VelocidadeMaximaB);
           Serial.println("Direita");
-          SerialBT.println("Direita");
+          // SerialBT.println("Direita");
           if (Del > 0) {
             delay(Del);
             frente_freio(0, 0);
@@ -198,7 +254,7 @@ void loop(){
         default: 
           frente_freio(0, 0);
           Serial.println("Parado");
-          SerialBT.println("Parado");
+          // SerialBT.println("Parado");
           break;
       }
     }
@@ -215,7 +271,7 @@ void loop(){
       LedRGB(255,127,0,300,1);
       LedRGB(0,255,0,300,1);
       Serial.println("corrida iniciada");
-      SerialBT.println("corrida iniciada");
+      // SerialBT.println("corrida iniciada");
     }
     else {
       
@@ -223,7 +279,7 @@ void loop(){
       // PiscaPisca(200, 2);
       LedRGB(255,0,0,200,2);
       Serial.println("corrida Acabou");
-      SerialBT.println("corrida Acabou");
+      // SerialBT.println("corrida Acabou");
     }
   }
 
@@ -235,6 +291,74 @@ void loop(){
       frente_freio(0, 0);
     }
   }
+}
+
+void tarefaMusica(void*param){
+  while (true) {
+    if (tocar && !tocando) {
+      audio = SPIFFS.open(musicaSelecionada, "r");
+      if (!audio) {
+        Serial.println("Erro ao abrir o arquivo");
+        tocar = false;
+        continue;
+      }
+
+      audio.seek(45);  // Pula cabeçalho WAV
+      tocando = true;
+      parar = false;
+
+      while (audio.available() && !parar) {
+        byte valor = audio.read();
+        dacWrite(pinoDAC, valor);
+        delay_us_custom(85);
+        if (++contadorwachdogs >= 100) {
+          contadorwachdogs = 0;
+          vTaskDelay(1);  // Cede tempo ao sistema
+        }
+      }
+
+      audio.close();
+      tocando = false;
+      tocar = false;
+      Serial.println(" Fim da música");
+    }
+
+     vTaskDelay(10 / portTICK_PERIOD_MS); // Pequeno delay para liberar CPU
+  }
+}
+
+void tarefaRGB(void*param){
+  while (true) {
+    switch (estadoLed) {
+    {
+    case 1:
+      while (estadoLed == 1) {
+        // modo de led configuração manual
+        vTaskDelay(10 / portTICK_PERIOD_MS); 
+      }
+      break;
+    case 2:
+    while (estadoLed == 2) {
+      rainbowEffect();
+    }
+      
+      break;
+      
+    
+    default:
+    LedRGB(0, 0, 0,0,1);
+      break;
+    }
+    vTaskDelay(10 / portTICK_PERIOD_MS); // Pequeno delay para liberar CPU
+  }
+}
+}
+void pararMusica() {
+  parar = true;
+  delay(10); // Garante que a outra tarefa possa sair do while
+  if (audio) audio.close();
+  tocando = false;
+  Serial.println(" Música parada");
 }
 
 //controle dos motores
@@ -260,8 +384,6 @@ void frente_freio(int motorA, int motorB){
     ledcWrite(3, 0);
   }
 }
-
-
 
 //controle do PID
 void Controle_PID(){
@@ -301,36 +423,24 @@ if (VelocidadeB < -VelocidadeMaximaB) {
 }
 frente_freio(VelocidadeA, VelocidadeB);
 Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
-//SerialBT.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
-
 }
 
 
 void calibracao() {
+   estadoLed = 1;
   Serial.println("Calibrando...");
-  SerialBT.println("Calibrando...");
-  // digitalWrite(LedIndicador, HIGH);
+  // SerialBT.println("Calibrando...");
   LedRGB(255, 0, 0,0,1);
   for (uint16_t i = 0; i < 400; i++) {
     qtr.calibrate();
   }
   Serial.println("Calibracao concluida");
-  SerialBT.println("Calibracao concluida");
-  delay(1000);
-  // digitalWrite(LedIndicador, LOW);
+  // SerialBT.println("Calibracao concluida");
+  // delay(1000);
   LedRGB(0, 0, 0,0,1);
+  estadoLed = 2;
   calibracaoAtiva = true;
 }
-
-// pisca o led indicador
-// void PiscaPisca(int tempo, int vezes) {
-//   for (int i = 0; i < vezes; i++) {
-//     digitalWrite(LedIndicador, HIGH);
-//     delay(tempo);
-//     digitalWrite(LedIndicador, LOW);
-//     delay(tempo);
-//   }
-// }
 
 void LedRGB(int r, int g, int b, int tempo,int loop) {
   for(int i = 0; i < loop; i++){
@@ -350,4 +460,19 @@ void LedRGB(int r, int g, int b, int tempo,int loop) {
     }
   }
   
+}
+
+void rainbowEffect() {
+  int rr, gg, bb;
+  for (int hue = 0; hue < 360; hue++) {
+    if (estadoLed != 2) break;
+
+    float rad = hue * 3.14159 / 180.0;
+    rr = (int)((sin(rad) + 1) * 127.5);
+    gg = (int)((sin(rad + 2.09439) + 1) * 127.5);
+    bb = (int)((sin(rad + 4.18878) + 1) * 127.5);
+
+    LedRGB(rr, gg, bb, 0, 1); 
+    vTaskDelay(5 / portTICK_PERIOD_MS); 
+  }
 }
