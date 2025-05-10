@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <QTRSensors.h>
 #include "BluetoothSerial.h"
-#include <SPIFFS.h>
+#include <SPIFFS.h> 
 #include "esp_timer.h"  
 #include "esp_task_wdt.h"
 File audio;
@@ -10,8 +10,10 @@ bool parar = false;
 bool tocar = false;
 String musicaSelecionada = "/audio1.wav";
 int pinoDAC = 26;
-int contadorwachdogs = 0;
-
+int Contadorwatchdogs = 0;
+int ContadorParada = 0;
+int ContadorSaiuDaLinha = 0;
+int Errors[10] = {0,0,0,0,0,0,0,0,0,0};
 int estadoLed= 1;
 
 
@@ -20,32 +22,31 @@ const uint8_t QuantSensores = 8;
 uint16_t SensorValores[QuantSensores];
 BluetoothSerial SerialBT;
 
-float Kp = 0.64;
-float Ki = 0;
-float Kd = 0.54;
+float Kp = 0.48;
+float Ki = 0.06;
+float Kd = 2.5;
+float Kr = 0;
 int P;
 int I;
 int D;
+int R;
 int UltimoErro = 0;
 
 boolean OnOff = false;
 boolean calibracaoAtiva = false;
 int ManualPid = 0;// 0 = PID, 1 = Manual
 
-int TempoParada = 300;
 
-
-
- uint8_t VelocidadeMaximaA = 224;
- uint8_t VelocidadeMaximaB = 224;
- uint8_t VelocidadeBaseA = 214;
- uint8_t VelocidadeBaseB = 214;
+ uint8_t VelocidadeMaximaA = 255;
+ uint8_t VelocidadeMaximaB = 255;
+ uint8_t VelocidadeBaseA = 255;
+ uint8_t VelocidadeBaseB = 255;
  
 
 // os sensores devem ser colocados na ordem
 //17,18,13,14,27,25,33,32 gpios usados sensores -entrada digital
 //26 para buzzer -saida pwm
-//5 para botao - input pullup
+//5,12 para botao - input pullup
 //2,15,4 para led - saida pwm
 //19,21,22,23 para ponte H - saidas pwm
 //16 ir led
@@ -58,7 +59,6 @@ int BAntiHora  =23;//direita anti horario
 int LedRed = 15;
 int LedGreen = 2;
 int LedBlue = 4;
-
 int botao = 5; 
 int botaoCalibracao = 12;
 TaskHandle_t musicaTaskHandle = NULL;
@@ -74,7 +74,7 @@ void delay_us_custom(uint64_t us);
 void setup(){
   SPIFFS.begin(true);
   Serial.begin(115200);
-   SerialBT.begin("Pacheco"); 
+  SerialBT.begin("SeguidorPacheco"); 
   //setup canais dos motores
   ledcSetup(0, 5000, 8);
   ledcSetup(1, 5000, 8);
@@ -120,7 +120,7 @@ xTaskCreatePinnedToCore(
   xTaskCreatePinnedToCore(
     tarefaMusica,
     "tarefaMusica",   
-    1900,
+    19000,
     NULL,
     1,
     &musicaTaskHandle,
@@ -131,7 +131,7 @@ xTaskCreatePinnedToCore(
 
 
 void loop(){
-  // para a musica caso esteja no bluetooth
+  // para a musica caso esteja no bluetooth e verifica estado do led
   if (!SerialBT.hasClient()) {
     if(calibracaoAtiva == false) {
       estadoLed = 1;
@@ -141,7 +141,7 @@ void loop(){
         estadoLed = 2;
       }else{
         estadoLed = 1;
-      LedRGB(0, 255, 0,0,1);
+      LedRGB(255, 255, 255,0,1);
       }
     }
     if (eTaskGetState(musicaTaskHandle) == eSuspended) {
@@ -150,7 +150,7 @@ void loop(){
     }
   } else {
     estadoLed = 1;
-    LedRGB(0, 255, 0,0,1);
+    LedRGB(0, 0, 255,0,1);
     if (eTaskGetState(musicaTaskHandle) != eSuspended) {
       vTaskSuspend(musicaTaskHandle);  
       Serial.println("Bluetooth pareado - Suspendendo a música.");
@@ -186,6 +186,7 @@ void loop(){
     int KpIndex = EntradaSerial.indexOf("Kp=");
     int KiIndex = EntradaSerial.indexOf("Ki=");
     int KdIndex = EntradaSerial.indexOf("Kd=");
+    int KrIndex = EntradaSerial.indexOf("Kr=");
     int VMaxIndex = EntradaSerial.indexOf("Vmax=");
     int VMinIndex = EntradaSerial.indexOf("Vmin=");
     String VMaxStr = EntradaSerial.substring(VMaxIndex + 5, VMinIndex);
@@ -198,13 +199,16 @@ void loop(){
     if (KpIndex >= 0 && KiIndex > KpIndex && KdIndex > KiIndex && ManualPid==0) {
       String kpStr = EntradaSerial.substring(KpIndex+3, KiIndex);
       String kiStr = EntradaSerial.substring(KiIndex + 3, KdIndex);
-      String kdStr = EntradaSerial.substring(KdIndex + 3, VMaxIndex);
+      String kdStr = EntradaSerial.substring(KdIndex + 3, KrIndex);
+      String krStr = EntradaSerial.substring(KrIndex + 3, VMaxIndex);
       
       Kp = kpStr.toFloat();
       Ki = kiStr.toFloat();
       Kd = kdStr.toFloat();
+      Kr = krStr.toFloat();
 
-      Serial.printf("Constantes atualizadas:\nKp = %.2f\nKi = %.2f\nKd = %.2f\n", Kp, Ki, Kd);
+
+      Serial.printf("Constantes atualizadas:\nKp = %.2f\nKi = %.2f\nKd = %.2f\nKr = %.2f\n", Kp, Ki, Kd,Kr);
       // SerialBT.printf("Constantes atualizadas:\nKp = %.2f\nKi = %.2f\nKd = %.2f\n", Kp, Ki, Kd);
     } 
     // leitura e modo manual
@@ -324,9 +328,9 @@ void tarefaMusica(void*param){
       while (audio.available() && !parar) {
         byte valor = audio.read();
         dacWrite(pinoDAC, valor);
-        delay_us_custom(85);
-        if (++contadorwachdogs >= 100) {
-          contadorwachdogs = 0;
+        delay_us_custom(55);
+        if (++Contadorwatchdogs >= 100) {
+          Contadorwatchdogs = 0;
           vTaskDelay(1);  
         }
       }
@@ -381,14 +385,14 @@ void tarefaRGB(void*param){
         // Aumenta brilho do azul
         for (int i = 0; i <= 255; i += 5) {
           if (estadoLed != 3) break;
-          LedRGB(0, 0, i, 0, 1);
+          LedRGB(i, i, 0, 0, 1);
           vTaskDelay(10 / portTICK_PERIOD_MS);
         }
     
         // Diminui brilho do azul
         for (int i = 255; i >= 0; i -= 5) {
           if (estadoLed != 3) break;
-          LedRGB(0, 0, i, 0, 1);
+          LedRGB(i, i, 0, 0, 1);
           vTaskDelay(10 / portTICK_PERIOD_MS);
         }
       }
@@ -429,31 +433,71 @@ void frente_freio(int motorA, int motorB){
   }
 }
 
+void past_errors (int error)
+{
+  for (int i = 9; i > 0; i--)
+      Errors[i] = Errors[i-1];
+  Errors[0] = error;
+}
+
+
+int errors_sum(int index, int Abs) {
+  int sum = 0;
+  for (int i = 0; i < index; i++) {
+    if (Abs == 0)
+      sum += abs(Errors[i]);  // para R
+    else
+      sum += Errors[i];       // para I
+  }
+  return sum;
+}
 //controle do PID
+
 void Controle_PID(){
 uint16_t posicao = qtr.readLineBlack(SensorValores);
 //------------verificação linha chegada ---------------
 //se está sobre a linha preta o valor do sensor é 1000
 //se está fora da linha preta o valor do sensor é abaixo de 100
 int ValorMaximoSensores = SensorValores[0]+SensorValores[1]+SensorValores[2]+SensorValores[3]+SensorValores[4]+SensorValores[5]+SensorValores[6]+SensorValores[7];
-if(ValorMaximoSensores == 7000){
-  
+if(ValorMaximoSensores >= 7500){
+  ContadorParada++;
+  if(ContadorParada ==10){
+  OnOff = false;
+  frente_freio(0, 0);
+  estadoLed = 1;
+  LedRGB(255, 0, 0,300,2);
+  }
+}else{
+  ContadorParada = 0;
 }
 //musicaSelecionada = "/Chegada.wav";
 // tocar = true;
 //PararMusica();
+//------------------verificação se saiu da linha-----------------
+if(ValorMaximoSensores <= 700){
+  ContadorSaiuDaLinha++;
+  if(UltimoErro > 0&& ContadorSaiuDaLinha > 10){
+    frente_freio(VelocidadeMaximaA, 0);
+  }else{
+    frente_freio(0, VelocidadeMaximaB);
+  }
+}else{
+  ContadorSaiuDaLinha = 0;
+}
 //--------------------------------------------------------
 int erro = 3500 - posicao;
+past_errors(erro);
 //Serial.println(posicao);
 P = erro;
-I = I + erro;
+I = errors_sum(5, 0);
 D = erro - UltimoErro;
 UltimoErro = erro;
+R = errors_sum(5, 1); // tentativa de aplicar uma logica de redução de velocidade, provavelmente não  vai ser usado
 
 //vai ser necessario alterar a logica dos motores
 int VelocidadeMotor = (P*Kp) + (I*Ki) + (D*Kd);
-int VelocidadeA = VelocidadeBaseA - VelocidadeMotor;
-int VelocidadeB = VelocidadeBaseB + VelocidadeMotor;
+int VelocidadeA = VelocidadeBaseA - VelocidadeMotor- (R*Kr);
+int VelocidadeB = VelocidadeBaseB + VelocidadeMotor- (R*Kr);
 
 
 if (VelocidadeA > VelocidadeMaximaA) {
