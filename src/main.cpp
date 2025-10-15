@@ -1,71 +1,56 @@
 #include <Arduino.h>
 #include <QTRSensors.h>
 #include "BluetoothSerial.h"
-//parte de codigo de musica que não funcionou---------------------------------
-// #include <SPIFFS.h> 
-// #include "esp_timer.h"  
-// #include "esp_task_wdt.h"
-// File audio;
-// bool tocando = false;
-// bool parar = false;
-// bool tocar = false;
-// String musicaSelecionada = "/Corrida.wav";
-// //int Contadorwatchdogs = 0;
-// int pinoDAC = 26;
-//----------------------------------------------------------------------------
-int contadorParada = 0;
-int contadorSaiuDaLinha = 0;
-int erros[10] = {0,0,0,0,0,0,0,0,0,0};
-int estadoLed= 1;
+
+uint8_t contadorParada = 0;
+uint8_t contadorSaiuDaLinha = 0;
+int16_t erros[15] = {0,0,0,0,0,0,0,0,0,0};
+int8_t estadoLed= 1;
 
 QTRSensors qtr;
 const uint8_t quantSensores = 8;
 uint16_t sensorValores[quantSensores];
 BluetoothSerial serialBt;
-float Kp = 0.48;
-float Ki = 0.06;
-float Kd = 2;
+float Kp = 0.28;
+float Ki = 0.015;
+float Kd = 3.68;
 float Kr = 0;
-int P,I, D, R;
-int ultimoErro = 0;
+int16_t P,I, D;
+int16_t ultimoErro = 0;
 boolean onOff = false;
 boolean calibracaoAtiva = false;
-int manualPid = 0;// 0 = PID, 1 = Manual
- uint8_t velocidadeMaximaA = 255;
- uint8_t velocidadeMaximaB = 255;
- uint8_t velocidadeBaseA = 255;
- uint8_t velocidadeBaseB = 255;
+int8_t manualPid = 0;// 0 = PID, 1 = Manual
+int16_t velocidadeMaximaA = 255;
+int16_t velocidadeMaximaB = 255;
+int16_t velocidadeBaseA = 237;
+int16_t velocidadeBaseB = 237;
  //----------pinos do esp--------------------------------------
 // os sensores devem ser colocados na ordem
 //17,18,13,14,27,25,33,32 gpios usados sensores -entrada digital
-//26 para buzzer -saida pwm
-//5,12 para botao - input pullup
+//5, para botao - input pullup
 //2,15,4 para led - saida pwm
-//19,21,22,23 para ponte H - saidas pwm
+//19,21,22,23 para ponte H - saidas digitais
+//26,12 pwm motor a e b
 //16 ir led
 //-------------------------------------------------------------
-int aHorario =19;// esquerda horario
-int aAntiHora =21;//esquerda anti horario
-int bHorario =22;//direita horario 
-int bAntiHora  =23;//direita anti horario
-int ledRed = 15;
-int ledGreen = 2;
-int ledBlue = 4;
-int botaoInicio = 5; 
-int botaoCalibracao = 12;
-// TaskHandle_t musicaTaskHandle = NULL;
+#define aHorario 21// esquerda horario
+#define aAntiHora 19//esquerda anti horario
+#define bHorario 23//direita horario 
+#define bAntiHora  22//direita anti horario
+#define APWM  26 // motor a pwm
+#define BPWM  12 // motor b pwm
+#define ledRed  15
+#define ledGreen 2
+#define ledBlue  4
+#define botao  5 
 //-----------prototipagem das funções----------
 void calibracao();
 void controleMotores(int motorA, int motorB);
 void controle_PID();
 void LedRGB(int r, int g, int b, int tempo,int loop);
-// void pararMusica();
-// void tarefaMusica(void*param);
 void tarefaRGB(void*param);
-// void delay_us_custom(uint64_t us);
 //---------------------------------------------
 void setup(){
-  // SPIFFS.begin(true);
   Serial.begin(115200);
   serialBt.begin("SeguidorPacheco"); 
   //----------setup canais dos motores--------
@@ -81,20 +66,21 @@ void setup(){
   qtr.setTypeRC();
   qtr.setSensorPins((const uint8_t[]){17,18,13,14,27,25,33,32}, quantSensores);
   qtr.setEmitterPin(16); 
-  qtr.setTimeout(2587);
+  qtr.setTimeout(2600);
 
-  ledcAttachPin(aHorario, 0);
-  ledcAttachPin(bAntiHora, 1);
-  ledcAttachPin(aAntiHora, 2);
-  ledcAttachPin(bHorario, 3);
+  ledcAttachPin(APWM, 0);
+  ledcAttachPin(BPWM, 1);
+  pinMode(aHorario, OUTPUT);
+  pinMode(bAntiHora, OUTPUT);
+  pinMode(aAntiHora, OUTPUT);
+  pinMode(bHorario, OUTPUT);
 
   ledcAttachPin(ledRed, 4);
   ledcAttachPin(ledGreen, 5);
   ledcAttachPin(ledBlue, 6);
 
 
-   pinMode(botaoInicio, INPUT_PULLUP);
-   pinMode(botaoCalibracao, INPUT_PULLUP);
+   pinMode(botao, INPUT_PULLUP);
   
   controleMotores(0,0);
   LedRGB(255, 0, 0,0,1);
@@ -106,15 +92,7 @@ xTaskCreatePinnedToCore(
   NULL,
   1,
   NULL,
-  1);
-  // xTaskCreatePinnedToCore(
-  //   tarefaMusica,
-  //   "tarefaMusica",   
-  //   19000,
-  //   NULL,
-  //   1,
-  //   &musicaTaskHandle,
-  //   0);     
+  1);   
 }
 
 void loop(){
@@ -131,21 +109,13 @@ void loop(){
       LedRGB(255, 255, 255,0,1);
       }
     }
-    // if (eTaskGetState(musicaTaskHandle) == eSuspended) {
-    //   vTaskResume(musicaTaskHandle); 
-    //   Serial.println("Bluetooth desconectado - Retomando a música.");
-    // }
   } else {
     estadoLed = 1;
     LedRGB(0, 0, 255,0,1);
-    // if (eTaskGetState(musicaTaskHandle) != eSuspended) {
-    //   vTaskSuspend(musicaTaskHandle);  
-    //   Serial.println("Bluetooth pareado - Suspendendo a música.");
-    // }
   }
 
   //--------botão calibração---------------------------
-  if(digitalRead(botaoCalibracao) == LOW && onOff ==false && manualPid == 0) {
+  if(digitalRead(botao) == LOW && onOff ==false && manualPid == 0&& calibracaoAtiva==false) {
     calibracao();
   }
   //---verifica se o bluetooth está conectado e faz a troca das constantes ou troca para o modo manual--
@@ -188,7 +158,7 @@ void loop(){
       
       Kp = kpStr.toFloat();
       Ki = kiStr.toFloat();
-      Kd = kdStr.toFloat();
+      Kd = (kdStr.toFloat())*2;
       Kr = krStr.toFloat();
 
 
@@ -249,7 +219,7 @@ void loop(){
   }
 
   //-----botão liga e desliga do carro-------------------
-  if(digitalRead(botaoInicio)==LOW && manualPid == 0&& calibracaoAtiva==true) {
+  if(digitalRead(botao)==LOW && manualPid == 0&& calibracaoAtiva==true) {
     onOff = !onOff;
     if(onOff == true) {
       //------tempo até o carro ligar-----
@@ -279,54 +249,6 @@ void loop(){
     }
   }
 }
-//-----------------funções de musica-------------------
-// void delay_us_custom(uint64_t us) {
-//   uint64_t start = esp_timer_get_time();
-//   while ((esp_timer_get_time() - start) < us) {
-//     esp_task_wdt_reset(); 
-//   }
-// }
-
-// void tarefaMusica(void*param){
-//   while (true) {
-//     if (tocar && !tocando) {
-//       audio = SPIFFS.open(musicaSelecionada, "r");
-//       if (!audio) {
-//         Serial.println("Erro ao abrir o arquivo");
-//         tocar = false;
-//         continue;
-//       }
-//       Serial.print(" Tocando: ");
-//       Serial.println(musicaSelecionada);
-//       audio.seek(46); 
-//       tocando = true;
-//       parar = false;
-//       while (audio.available() && !parar) {
-//         byte valor = audio.read();
-//         dacWrite(pinoDAC, valor);
-//         delay_us_custom(70);
-//         if (++Contadorwatchdogs >= 100) {
-//           Contadorwatchdogs = 0;
-//           vTaskDelay(1);  
-//         }
-//       }
-//       audio.close();
-//       tocando = false;
-//       tocar = false;
-//       Serial.println(" Fim da música");
-//     }
-//      vTaskDelay(10 / portTICK_PERIOD_MS); 
-//   }
-// }
-
-// void pararMusica() {
-//   parar = true;
-//   delay(10); 
-//   if (audio) audio.close();
-//   tocando = false;
-//   Serial.println(" Música parada");
-// }
-
 //--------------------------------------------
 void tarefaRGB(void*param){
   while (true) {
@@ -382,26 +304,35 @@ void tarefaRGB(void*param){
 }
 }
 
+
 void controleMotores(int motorA, int motorB){
   if(motorA > 0){
+    digitalWrite(aHorario, HIGH);
+    digitalWrite(aAntiHora, LOW);
     ledcWrite(0, motorA);
-    ledcWrite(2, 0);
+    // ledcWrite(0, motorA);
+    // ledcWrite(2, 0);
   }else if(motorA < 0){
-    ledcWrite(0, 0);
-    ledcWrite(2, -(motorA));
+    digitalWrite(aHorario, LOW);
+    digitalWrite(aAntiHora, HIGH);
+    ledcWrite(0, -(motorA));
   }else{
+    digitalWrite(aHorario, LOW);
+    digitalWrite(aAntiHora, LOW);
     ledcWrite(0, 0);
-    ledcWrite(2, 0);
   }
   if(motorB > 0){
+    digitalWrite(bHorario, HIGH);
+    digitalWrite(bAntiHora, LOW);
     ledcWrite(1, motorB);
-    ledcWrite(3, 0);
   }else if(motorB < 0){
-    ledcWrite(1, 0);
-    ledcWrite(3, -(motorB));
+    digitalWrite(bHorario, LOW);
+    digitalWrite(bAntiHora, HIGH);
+    ledcWrite(1, -(motorB));
   }else{
+    digitalWrite(bHorario, LOW);
+    digitalWrite(bAntiHora, LOW);
     ledcWrite(1, 0);
-    ledcWrite(3, 0);
   }
 }
 
@@ -433,20 +364,17 @@ errosPassados(erro);
 //se está fora da linha preta o valor do sensor é abaixo de 100
 int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sensorValores[3]+sensorValores[4]+sensorValores[5]+sensorValores[6]+sensorValores[7];
 //------------verificação linha chegada ---------------
-if(ValorMaximoSensores >= 7500){
-  contadorParada++;
-  if(contadorParada ==10){
-  onOff = false;
-  controleMotores(0, 0);
-  estadoLed = 1;
-  LedRGB(255, 0, 0,300,2);
-  }
-}else{
-  contadorParada = 0;
-}
-//musicaSelecionada = "/Chegada.wav";
-// tocar = true;
-//PararMusica();
+// if(ValorMaximoSensores >= 7500){
+//   contadorParada++;
+//   if(contadorParada ==10){
+//   onOff = false;
+//   controleMotores(0, 0);
+//   estadoLed = 1;
+//   LedRGB(255, 0, 0,300,2); 
+//   }
+// }else{
+//   contadorParada = 0;
+// }
 //------------------verificação se saiu da linha-----------------
 if(ValorMaximoSensores <= 700){
   contadorSaiuDaLinha++;
@@ -458,8 +386,10 @@ if(ValorMaximoSensores <= 700){
 }else{
   contadorSaiuDaLinha = 0;
 }
+//------------------verificação 90 graus(teste)----------------
+
 //-----------------ajuste de tolerancia em linha reta-----------------
-if (abs(erro) < 100) {  
+if (abs(erro) < 1000*Kr) {  
   erro = 0;
 }
 //-----------------PID-----------------
@@ -491,7 +421,7 @@ Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
 void calibracao() {
    estadoLed = 3;
   Serial.println("Calibrando...");
-  for (uint16_t i = 0; i < 400; i++) {
+  for (uint16_t i = 0; i < 500; i++) {
     qtr.calibrate();
   }
   Serial.println("Calibracao concluida");
