@@ -32,6 +32,7 @@ int16_t velocidadeBaseB = 237;
 //19,21,22,23 para ponte H - saidas digitais
 //26,12 pwm motor a e b
 //16 ir led
+//Foi trocado D1 e led on
 //-------------------------------------------------------------
 #define aHorario 21// esquerda horario
 #define aAntiHora 19//esquerda anti horario
@@ -64,8 +65,8 @@ void setup(){
   ledcSetup(6, 5000, 8);
 //-----setup dos sensores---------------------
   qtr.setTypeRC();
-  qtr.setSensorPins((const uint8_t[]){17,18,13,14,27,25,33,32}, quantSensores);
-  qtr.setEmitterPin(16); 
+  qtr.setSensorPins((const uint8_t[]){16,18,13,14,27,25,33,32}, quantSensores);
+  qtr.setEmitterPin(17); 
   qtr.setTimeout(2600);
 
   ledcAttachPin(APWM, 0);
