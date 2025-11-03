@@ -2,6 +2,7 @@
 #include <QTRSensors.h>
 #include "BluetoothSerial.h"
 
+// Variáveis Globais
 uint8_t contadorParada = 0;
 uint8_t contadorSaiuDaLinha = 0;
 int16_t erros[15] = {0,0,0,0,0,0,0,0,0,0};
@@ -447,6 +448,4 @@ void LedRGB(int r, int g, int b, int tempo,int loop) {
     delay(tempo);
     }
   }
-  
 }
-
