@@ -376,17 +376,25 @@ int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sen
 // }else{
 //   contadorParada = 0;
 // }
-//------------------verificação se saiu da linha-----------------
+//------------------verificação se saiu da linha -----------------
+// Se todos os sensores estão no fundo branco/claro
 if(ValorMaximoSensores <= 700){
   contadorSaiuDaLinha++;
-  if(ultimoErro > 0&& contadorSaiuDaLinha > 10){
-    controleMotores(velocidadeMaximaA, 0);
+
+  if(contadorSaiuDaLinha < 20){ // Continua reto por ~20 iterações (ajuste este valor!)
+    // Acelera para passar rápido pelo espaço em branco
+    controleMotores(velocidadeMaximaA, velocidadeMaximaB); 
   }else{
-    controleMotores(0, velocidadeMaximaB);
+    // Se a linha não for encontrada, ele faz a manobra de busca
+    if(ultimoErro > 0){
+      controleMotores(velocidadeMaximaA, -velocidadeMaximaB); // Busca para o lado que estava
+    }else{
+      controleMotores(-velocidadeMaximaA, velocidadeMaximaB); // Busca para o outro lado
+    }
   }
+
 }else{
   contadorSaiuDaLinha = 0;
-}
 //------------------verificação 90 graus(teste)----------------
 
 //-----------------ajuste de tolerancia em linha reta-----------------
