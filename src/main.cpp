@@ -381,8 +381,8 @@ int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sen
 if(ValorMaximoSensores <= 700){
   contadorSaiuDaLinha++;
 
-  if(contadorSaiuDaLinha < 20){ // Continua reto por ~20 iterações (ajuste este valor!)
-    // Acelera para passar rápido pelo espaço em branco
+  if(contadorSaiuDaLinha < 20){ // Continua reto por ~20 iterações (ajusta o valor com base na distancia do tracejado)
+        // Acelera para passar rápido pelo espaço em branco
     controleMotores(velocidadeMaximaA, velocidadeMaximaB); 
   }else{
     // Se a linha não for encontrada, ele faz a manobra de busca
