@@ -4,8 +4,15 @@
 
 uint8_t contadorParada = 0;
 uint8_t contadorSaiuDaLinha = 0;
-int16_t erros[15] = {0,0,0,0,0,0,0,0,0,0};
+constexpr uint8_t historicoTamanho = 10;
+int16_t erros[historicoTamanho] = {0};
+int16_t posicoes[historicoTamanho] = {0};
 int8_t estadoLed= 1;
+
+bool posicoesDentroDoIntervalo = false;
+// limites padrão da posição calculada pelo sensor QTR (0 a 7000 para 8 sensores)
+const int16_t limiteInferiorPosicoes = 0;
+const int16_t limiteSuperiorPosicoes = 7000;
 
 QTRSensors qtr;
 const uint8_t quantSensores = 8;
@@ -33,10 +40,10 @@ int16_t velocidadeBaseB = 237;
 //26,12 pwm motor a e b
 //16 ir led
 //-------------------------------------------------------------
-#define aHorario 21// esquerda horario
-#define aAntiHora 19//esquerda anti horario
-#define bHorario 23//direita horario 
-#define bAntiHora  22//direita anti horario
+#define aHorario 23// esquerda horario  21
+#define aAntiHora 22//esquerda anti horario 19
+#define bHorario 21//direita horario 23
+#define bAntiHora  19//direita anti horario 22
 #define APWM  26 // motor a pwm
 #define BPWM  12 // motor b pwm
 #define ledRed  15
@@ -336,12 +343,29 @@ void controleMotores(int motorA, int motorB){
   }
 }
 
-void errosPassados (int error)
+void Passados (int error,int posicao)
 {
-  for (int i = 9; i > 0; i--)
-      erros[i] = erros[i-1];
+  for (int i = historicoTamanho - 1; i > 0; i--){
+    erros[i] = erros[i-1];
+    posicoes[i] = posicoes[i-1];
+  }
   erros[0] = error;
+  posicoes[0] = posicao;
 }
+
+void atualizarFlagPosicoes(int16_t limiteInferior, int16_t limiteSuperior) {
+  bool dentroDoIntervalo = true;
+  for (uint8_t i = 0; i < historicoTamanho; i++) {
+    if (posicoes[i] < limiteInferior || posicoes[i] > limiteSuperior) {
+      dentroDoIntervalo = false;
+      break;
+    }
+  }
+  posicoesDentroDoIntervalo = dentroDoIntervalo;
+}
+
+
+
 
 
 int errosSomatorio(int index, int Abs) {
@@ -359,7 +383,9 @@ void controle_PID(){
   //-----------------leitura dos sensores-----------------
 uint16_t posicao = qtr.readLineBlack(sensorValores);
 int erro = 3500 - posicao;
-errosPassados(erro);
+Passados(erro,posicao);
+atualizarFlagPosicoes(3000, 4000);
+
 //se está sobre a linha preta o valor do sensor é 1000
 //se está fora da linha preta o valor do sensor é abaixo de 100
 int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sensorValores[3]+sensorValores[4]+sensorValores[5]+sensorValores[6]+sensorValores[7];
@@ -378,10 +404,9 @@ int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sen
 //------------------verificação se saiu da linha-----------------
 if(ValorMaximoSensores <= 700){
   contadorSaiuDaLinha++;
-  if(ultimoErro > 0&& contadorSaiuDaLinha > 10){
-    controleMotores(velocidadeMaximaA, 0);
-  }else{
-    controleMotores(0, velocidadeMaximaB);
+
+  if(contadorSaiuDaLinha > 10){ // Continua reto por ~20 iterações (ajusta o valor com base na distancia do tracejado)
+      
   }
 }else{
   contadorSaiuDaLinha = 0;
@@ -389,9 +414,9 @@ if(ValorMaximoSensores <= 700){
 //------------------verificação 90 graus(teste)----------------
 
 //-----------------ajuste de tolerancia em linha reta-----------------
-if (abs(erro) < 1000*Kr) {  
-  erro = 0;
-}
+// if (abs(erro) < 1000*Kr) {  
+//   erro = 0;
+// }
 //-----------------PID-----------------
 P = erro;
 I = errosSomatorio(5, 0);
@@ -401,19 +426,19 @@ ultimoErro = erro;
 int VelocidadeMotor = (P*Kp) + (I*Ki) + (D*Kd);
 int VelocidadeA = velocidadeBaseA - VelocidadeMotor;
 int VelocidadeB = velocidadeBaseB + VelocidadeMotor;
-if (VelocidadeA > velocidadeMaximaA) {
-  VelocidadeA = velocidadeMaximaA;
-}
-if (VelocidadeB > velocidadeMaximaB) {
-  VelocidadeB = velocidadeMaximaB;
-}
-if (VelocidadeA < -velocidadeMaximaA) {
-  VelocidadeA = -velocidadeMaximaA;
-}
-if (VelocidadeB < -velocidadeMaximaB) {
-  VelocidadeB = -velocidadeMaximaB;
-}
-controleMotores(VelocidadeA, VelocidadeB);
+
+if (VelocidadeA > velocidadeMaximaA) VelocidadeA = velocidadeMaximaA;
+if (VelocidadeB > velocidadeMaximaB) VelocidadeB = velocidadeMaximaB;
+
+if (VelocidadeA < -velocidadeMaximaA) VelocidadeA = -velocidadeMaximaA;
+if (VelocidadeB < -velocidadeMaximaB) VelocidadeB = -velocidadeMaximaB;
+
+// Cria zona morta negativa (de 0 a -150)
+if (VelocidadeA < 0 && VelocidadeA >= -(255*Kr)) VelocidadeA = 0;
+if (VelocidadeB < 0 && VelocidadeB >= -(255*Kr)) VelocidadeB = 0;
+
+  controleMotores(VelocidadeA, VelocidadeB);
+  
 Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
 }
 
@@ -449,4 +474,3 @@ void LedRGB(int r, int g, int b, int tempo,int loop) {
   }
   
 }
-
