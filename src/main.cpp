@@ -5,8 +5,14 @@
 // Variáveis Globais
 uint8_t contadorParada = 0;
 uint8_t contadorSaiuDaLinha = 0;
-int16_t erros[15] = {0,0,0,0,0,0,0,0,0,0};
+constexpr uint8_t historicoTamanho = 10;
+int16_t erros[historicoTamanho] = {0};
+int16_t posicoes[historicoTamanho] = {0};
 int8_t estadoLed= 1;
+
+bool posicoesDentroDoIntervalo = false;
+bool loopGap = false;
+
 
 QTRSensors qtr;
 const uint8_t quantSensores = 8;
@@ -34,10 +40,10 @@ int16_t velocidadeBaseB = 237;
 //26,12 pwm motor a e b
 //16 ir led
 //-------------------------------------------------------------
-#define aHorario 21// esquerda horario
-#define aAntiHora 19//esquerda anti horario
-#define bHorario 23//direita horario 
-#define bAntiHora  22//direita anti horario
+#define aHorario 23// esquerda horario  21
+#define aAntiHora 22//esquerda anti horario 19
+#define bHorario 21//direita horario 23
+#define bAntiHora  19//direita anti horario 22
 #define APWM  26 // motor a pwm
 #define BPWM  12 // motor b pwm
 #define ledRed  15
@@ -337,12 +343,29 @@ void controleMotores(int motorA, int motorB){
   }
 }
 
-void errosPassados (int error)
+void Passados (int error,int posicao)
 {
-  for (int i = 9; i > 0; i--)
-      erros[i] = erros[i-1];
+  for (int i = historicoTamanho - 1; i > 0; i--){
+    erros[i] = erros[i-1];
+    posicoes[i] = posicoes[i-1];
+  }
   erros[0] = error;
+  posicoes[0] = posicao;
 }
+
+void atualizarFlagPosicoes(int16_t limiteInferior, int16_t limiteSuperior) {
+  bool dentroDoIntervalo = true;
+  for (uint8_t i = 0; i < historicoTamanho; i++) {
+    if (posicoes[i] < limiteInferior || posicoes[i] > limiteSuperior) {
+      dentroDoIntervalo = false;
+      break;
+    }
+  }
+  posicoesDentroDoIntervalo = dentroDoIntervalo;
+}
+
+
+
 
 
 int errosSomatorio(int index, int Abs) {
@@ -360,7 +383,9 @@ void controle_PID(){
   //-----------------leitura dos sensores-----------------
 uint16_t posicao = qtr.readLineBlack(sensorValores);
 int erro = 3500 - posicao;
-errosPassados(erro);
+
+
+
 //se está sobre a linha preta o valor do sensor é 1000
 //se está fora da linha preta o valor do sensor é abaixo de 100
 int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sensorValores[3]+sensorValores[4]+sensorValores[5]+sensorValores[6]+sensorValores[7];
@@ -376,31 +401,28 @@ int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sen
 // }else{
 //   contadorParada = 0;
 // }
-//------------------verificação se saiu da linha -----------------
-// Se todos os sensores estão no fundo branco/claro
+//------------------verificação para Gap-----------------
 if(ValorMaximoSensores <= 700){
   contadorSaiuDaLinha++;
 
-  if(contadorSaiuDaLinha < 20){ // Continua reto por ~20 iterações (ajusta o valor com base na distancia do tracejado)
-        // Acelera para passar rápido pelo espaço em branco
-    controleMotores(velocidadeMaximaA, velocidadeMaximaB); 
-  }else{
-    // Se a linha não for encontrada, ele faz a manobra de busca
-    if(ultimoErro > 0){
-      controleMotores(velocidadeMaximaA, -velocidadeMaximaB); // Busca para o lado que estava
-    }else{
-      controleMotores(-velocidadeMaximaA, velocidadeMaximaB); // Busca para o outro lado
-    }
+  if(contadorSaiuDaLinha >= 1&&(posicoesDentroDoIntervalo||loopGap
+  )){ 
+      controleMotores(velocidadeMaximaA, velocidadeMaximaB);
+      loopGap = true;
   }
 
 }else{
   contadorSaiuDaLinha = 0;
+  loopGap = false;
+}
+Passados(erro,posicao);
+atualizarFlagPosicoes(2000, 5000); 
 //------------------verificação 90 graus(teste)----------------
 
 //-----------------ajuste de tolerancia em linha reta-----------------
-if (abs(erro) < 1000*Kr) {  
-  erro = 0;
-}
+// if (abs(erro) < 1000*Kr) {  
+//   erro = 0;
+// }
 //-----------------PID-----------------
 P = erro;
 I = errosSomatorio(5, 0);
@@ -410,20 +432,21 @@ ultimoErro = erro;
 int VelocidadeMotor = (P*Kp) + (I*Ki) + (D*Kd);
 int VelocidadeA = velocidadeBaseA - VelocidadeMotor;
 int VelocidadeB = velocidadeBaseB + VelocidadeMotor;
-if (VelocidadeA > velocidadeMaximaA) {
-  VelocidadeA = velocidadeMaximaA;
+
+if (VelocidadeA > velocidadeMaximaA) VelocidadeA = velocidadeMaximaA;
+if (VelocidadeB > velocidadeMaximaB) VelocidadeB = velocidadeMaximaB;
+
+if (VelocidadeA < -velocidadeMaximaA) VelocidadeA = -velocidadeMaximaA;
+if (VelocidadeB < -velocidadeMaximaB) VelocidadeB = -velocidadeMaximaB;
+
+//----------------zona morta negativa-----------------
+if (VelocidadeA < 0 && VelocidadeA >= -(255*Kr)) VelocidadeA = 0;
+if (VelocidadeB < 0 && VelocidadeB >= -(255*Kr)) VelocidadeB = 0;
+//----------------------------------------------------
+if(loopGap == false){
+  controleMotores(VelocidadeA, VelocidadeB);
 }
-if (VelocidadeB > velocidadeMaximaB) {
-  VelocidadeB = velocidadeMaximaB;
-}
-if (VelocidadeA < -velocidadeMaximaA) {
-  VelocidadeA = -velocidadeMaximaA;
-}
-if (VelocidadeB < -velocidadeMaximaB) {
-  VelocidadeB = -velocidadeMaximaB;
-}
-controleMotores(VelocidadeA, VelocidadeB);
-Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
+Serial.printf("VA=%d VB=%d Pos=%d loop = %d intervalo =%d\n ", VelocidadeA, VelocidadeB, posicao, loopGap, posicoesDentroDoIntervalo);
 }
 
 
