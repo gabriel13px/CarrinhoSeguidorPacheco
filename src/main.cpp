@@ -10,9 +10,8 @@ int16_t posicoes[historicoTamanho] = {0};
 int8_t estadoLed= 1;
 
 bool posicoesDentroDoIntervalo = false;
-// limites padrão da posição calculada pelo sensor QTR (0 a 7000 para 8 sensores)
-const int16_t limiteInferiorPosicoes = 0;
-const int16_t limiteSuperiorPosicoes = 7000;
+bool loopGap = false;
+
 
 QTRSensors qtr;
 const uint8_t quantSensores = 8;
@@ -383,8 +382,8 @@ void controle_PID(){
   //-----------------leitura dos sensores-----------------
 uint16_t posicao = qtr.readLineBlack(sensorValores);
 int erro = 3500 - posicao;
-Passados(erro,posicao);
-atualizarFlagPosicoes(3000, 4000);
+
+
 
 //se está sobre a linha preta o valor do sensor é 1000
 //se está fora da linha preta o valor do sensor é abaixo de 100
@@ -401,16 +400,21 @@ int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sen
 // }else{
 //   contadorParada = 0;
 // }
-//------------------verificação se saiu da linha-----------------
+//------------------verificação para Gap-----------------
 if(ValorMaximoSensores <= 700){
   contadorSaiuDaLinha++;
 
-  if(contadorSaiuDaLinha > 10){ // Continua reto por ~20 iterações (ajusta o valor com base na distancia do tracejado)
-      
+  if(contadorSaiuDaLinha >= 1&&(posicoesDentroDoIntervalo||loopGap
+  )){ 
+      controleMotores(velocidadeMaximaA, velocidadeMaximaB);
+      loopGap = true;
   }
 }else{
   contadorSaiuDaLinha = 0;
+  loopGap = false;
 }
+Passados(erro,posicao);
+atualizarFlagPosicoes(2000, 5000); 
 //------------------verificação 90 graus(teste)----------------
 
 //-----------------ajuste de tolerancia em linha reta-----------------
@@ -433,13 +437,14 @@ if (VelocidadeB > velocidadeMaximaB) VelocidadeB = velocidadeMaximaB;
 if (VelocidadeA < -velocidadeMaximaA) VelocidadeA = -velocidadeMaximaA;
 if (VelocidadeB < -velocidadeMaximaB) VelocidadeB = -velocidadeMaximaB;
 
-// Cria zona morta negativa (de 0 a -150)
+//----------------zona morta negativa-----------------
 if (VelocidadeA < 0 && VelocidadeA >= -(255*Kr)) VelocidadeA = 0;
 if (VelocidadeB < 0 && VelocidadeB >= -(255*Kr)) VelocidadeB = 0;
-
+//----------------------------------------------------
+if(loopGap == false){
   controleMotores(VelocidadeA, VelocidadeB);
-  
-Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
+}
+Serial.printf("VA=%d VB=%d Pos=%d loop = %d intervalo =%d\n ", VelocidadeA, VelocidadeB, posicao, loopGap, posicoesDentroDoIntervalo);
 }
 
 
