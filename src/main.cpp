@@ -2,6 +2,7 @@
 #include <QTRSensors.h>
 #include "BluetoothSerial.h"
 
+// Variáveis Globais
 uint8_t contadorParada = 0;
 uint8_t contadorSaiuDaLinha = 0;
 constexpr uint8_t historicoTamanho = 10;
@@ -409,6 +410,7 @@ if(ValorMaximoSensores <= 700){
       controleMotores(velocidadeMaximaA, velocidadeMaximaB);
       loopGap = true;
   }
+
 }else{
   contadorSaiuDaLinha = 0;
   loopGap = false;
@@ -477,5 +479,4 @@ void LedRGB(int r, int g, int b, int tempo,int loop) {
     delay(tempo);
     }
   }
-  
 }
