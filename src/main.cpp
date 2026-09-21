@@ -1,42 +1,12 @@
 #include <Arduino.h>
 #include <QTRSensors.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-#include <Adafruit_NeoPixel.h>
+#include "BluetoothSerial.h"
 
+uint8_t contadorParada = 0;
+uint8_t contadorSaiuDaLinha = 0;
+int16_t erros[15] = {0,0,0,0,0,0,0,0,0,0};
+int8_t estadoLed= 1;
 
-#define NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define NUS_RX_CHAR "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define NUS_TX_CHAR "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
-
-// -------- pinos -------------
-#define PIN_A_HORARIO     38  
-#define PIN_A_ANTIHORARIO 47  
-
-#define PIN_B_HORARIO     37  
-#define PIN_B_ANTIHORARIO 36
-
-
-#define PIN_APWM          41  
-#define PIN_BPWM          35   
-
-//pinos para LEDs RGB
-#define PIN_LED_R          13  
-#define PIN_LED_G          14  
-#define PIN_LED_B          12  
-
-// Botão e emissor sensores
-#define PIN_EMISSOR_CONTROLE         21  
-#define PIN_EMISSOR_LINHA        7  
-
-// LED RGB Neopixel 
-#define PIN_NEOPIXEL      48
-#define NEOPIXEL_COUNT     1
-Adafruit_NeoPixel neopixel(NEOPIXEL_COUNT, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
-
-// -------- sensores --------------------------------------------
 QTRSensors qtr;
 const uint8_t QUANT_SENSORES = 8;
 uint16_t sensorValores[QUANT_SENSORES];
@@ -56,22 +26,28 @@ int16_t erros[10]  = {};
 
 int16_t velocidadeMaximaA = 255;
 int16_t velocidadeMaximaB = 255;
-int16_t velocidadeBaseA   = 237;
-int16_t velocidadeBaseB   = 237;
-
-uint8_t contadorSaiuLinha = 0;
-bool    warnOfflineSent   = false;
-
-// -------- controle remoto ---------------------------
-enum DirManual { DIR_STOP, DIR_FRENTE, DIR_TRAS, DIR_ESQUERDA, DIR_DIREITA };
-DirManual direcaoAtual = DIR_STOP;
-int16_t   pwmManual    = 255; 
-
-// -------- temporização modo teste ----------------------------
-uint32_t ultimoEnvioTeste   = 0;
-const uint16_t INTERVALO_TESTE_MS = 100;
-
-// -------- protótipos -----------------------------------------
+int16_t velocidadeBaseA = 237;
+int16_t velocidadeBaseB = 237;
+ //----------pinos do esp--------------------------------------
+// os sensores devem ser colocados na ordem
+//17,18,13,14,27,25,33,32 gpios usados sensores -entrada digital
+//5, para botao - input pullup
+//2,15,4 para led - saida pwm
+//19,21,22,23 para ponte H - saidas digitais
+//26,12 pwm motor a e b
+//16 ir led
+//-------------------------------------------------------------
+#define aHorario 21// esquerda horario
+#define aAntiHora 19//esquerda anti horario
+#define bHorario 23//direita horario 
+#define bAntiHora  22//direita anti horario
+#define APWM  26 // motor a pwm
+#define BPWM  12 // motor b pwm
+#define ledRed  15
+#define ledGreen 2
+#define ledBlue  4
+#define botao  5 
+//-----------prototipagem das funções----------
 void calibracao();
 void controleMotores(int motorA, int motorB);
 void controle_PID();
@@ -410,11 +386,13 @@ void controleMotores(int motorA, int motorB) {
   }
 }
 
-// ==============================================================
-void errosPassados(int erro) {
-  for (int i = 9; i > 0; i--) erros[i] = erros[i - 1];
-  erros[0] = erro;
+void errosPassados (int error)
+{
+  for (int i = 9; i > 0; i--)
+      erros[i] = erros[i-1];
+  erros[0] = error;
 }
+
 
 int errosSomatorio(int qtd) {
   int soma = 0;
@@ -422,43 +400,66 @@ int errosSomatorio(int qtd) {
   return soma;
 }
 
-// ==============================================================
-void controle_PID() {
-  uint16_t posicao = qtr.readLineBlack(sensorValores);
-  int erro = 3500 - (int)posicao;
-  errosPassados(erro);
-
-  int32_t soma = 0;
-  for (uint8_t i = 0; i < QUANT_SENSORES; i++) soma += sensorValores[i];
-
-  if (soma <= 700) {
-    contadorSaiuLinha++;
-    if (contadorSaiuLinha > 10) {
-      if (!warnOfflineSent) {
-        bleSend("WARN:OFFLINE\n");
-        warnOfflineSent = true;
-      }
-      if (ultimoErro > 0) controleMotores(velocidadeMaximaA, 0);
-      else                controleMotores(0, velocidadeMaximaB);
-    }
-    return;
+void controle_PID(){
+  //-----------------leitura dos sensores-----------------
+uint16_t posicao = qtr.readLineBlack(sensorValores);
+int erro = 3500 - posicao;
+errosPassados(erro);
+//se está sobre a linha preta o valor do sensor é 1000
+//se está fora da linha preta o valor do sensor é abaixo de 100
+int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sensorValores[3]+sensorValores[4]+sensorValores[5]+sensorValores[6]+sensorValores[7];
+//------------verificação linha chegada ---------------
+// if(ValorMaximoSensores >= 7500){
+//   contadorParada++;
+//   if(contadorParada ==10){
+//   onOff = false;
+//   controleMotores(0, 0);
+//   estadoLed = 1;
+//   LedRGB(255, 0, 0,300,2); 
+//   }
+// }else{
+//   contadorParada = 0;
+// }
+//------------------verificação se saiu da linha-----------------
+if(ValorMaximoSensores <= 700){
+  contadorSaiuDaLinha++;
+  if(ultimoErro > 0&& contadorSaiuDaLinha > 10){
+    controleMotores(velocidadeMaximaA, 0);
+  }else{
+    controleMotores(0, velocidadeMaximaB);
   }
-  contadorSaiuLinha = 0;
-  warnOfflineSent   = false;
+}else{
+  contadorSaiuDaLinha = 0;
+}
+//------------------verificação 90 graus(teste)----------------
 
-  if (abs(erro) < (int)(1000 * Kr)) erro = 0;
-
-  int P = erro;
-  int I = errosSomatorio(5);
-  int D = erro - ultimoErro;
-  ultimoErro = erro;
-
-  int correcao = (int)(P * Kp + I * Ki + D * Kd);
-  int vA = constrain(velocidadeBaseA - correcao, -velocidadeMaximaA, velocidadeMaximaA);
-  int vB = constrain(velocidadeBaseB + correcao, -velocidadeMaximaB, velocidadeMaximaB);
-
-  controleMotores(vA, vB);
-  Serial.printf("VA=%d VB=%d Pos=%d\n", vA, vB, posicao);
+//-----------------ajuste de tolerancia em linha reta-----------------
+if (abs(erro) < 1000*Kr) {  
+  erro = 0;
+}
+//-----------------PID-----------------
+P = erro;
+I = errosSomatorio(5, 0);
+D = erro - ultimoErro;
+ultimoErro = erro;
+//-------------------controle de velocidade-----------------
+int VelocidadeMotor = (P*Kp) + (I*Ki) + (D*Kd);
+int VelocidadeA = velocidadeBaseA - VelocidadeMotor;
+int VelocidadeB = velocidadeBaseB + VelocidadeMotor;
+if (VelocidadeA > velocidadeMaximaA) {
+  VelocidadeA = velocidadeMaximaA;
+}
+if (VelocidadeB > velocidadeMaximaB) {
+  VelocidadeB = velocidadeMaximaB;
+}
+if (VelocidadeA < -velocidadeMaximaA) {
+  VelocidadeA = -velocidadeMaximaA;
+}
+if (VelocidadeB < -velocidadeMaximaB) {
+  VelocidadeB = -velocidadeMaximaB;
+}
+controleMotores(VelocidadeA, VelocidadeB);
+Serial.printf("VA=%d VB=%d Pos=%d\n", VelocidadeA, VelocidadeB, posicao);
 }
 
 // ==============================================================
@@ -488,36 +489,6 @@ void LedRGB(int r, int g, int b, int tempo, int loop) {
       delay(tempo);
     }
   }
+  
 }
 
-void tarefaRGB(void* param) {
-  while (true) {
-    switch (estadoLed) {
-      case 0:
-        while (estadoLed == 0) { LedRGB(0,0,0,0,1); vTaskDelay(10/portTICK_PERIOD_MS); }
-        break;
-      case 1:
-        while (estadoLed == 1) vTaskDelay(10/portTICK_PERIOD_MS);
-        break;
-      case 2:
-        while (estadoLed == 2) {
-          for (int hue = 0; hue < 360; hue++) {
-            if (estadoLed != 2) break;
-            float rad = hue * 3.14159f / 180.0f;
-            LedRGB((int)((sinf(rad)            + 1) * 127.5f),
-                   (int)((sinf(rad + 2.09439f) + 1) * 127.5f),
-                   (int)((sinf(rad + 4.18878f) + 1) * 127.5f), 0, 1);
-            vTaskDelay(5/portTICK_PERIOD_MS);
-          }
-        }
-        break;
-      case 3:
-        while (estadoLed == 3) {
-          for (int i = 0; i <= 255; i += 5) { if (estadoLed!=3) break; LedRGB(i,i,0,0,1); vTaskDelay(10/portTICK_PERIOD_MS); }
-          for (int i = 255; i >= 0; i -= 5) { if (estadoLed!=3) break; LedRGB(i,i,0,0,1); vTaskDelay(10/portTICK_PERIOD_MS); }
-        }
-        break;
-    }
-    vTaskDelay(10/portTICK_PERIOD_MS);
-  }
-}
