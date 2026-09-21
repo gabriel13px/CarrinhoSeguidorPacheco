@@ -6,7 +6,6 @@
 #include <BLE2902.h>
 #include <Adafruit_NeoPixel.h>
 
-<<<<<<< HEAD
 
 #define NUS_SERVICE "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define NUS_RX_CHAR "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
@@ -38,20 +37,6 @@
 Adafruit_NeoPixel neopixel(NEOPIXEL_COUNT, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
 
 // -------- sensores --------------------------------------------
-=======
-// Variáveis Globais
-uint8_t contadorParada = 0;
-uint8_t contadorSaiuDaLinha = 0;
-constexpr uint8_t historicoTamanho = 10;
-int16_t erros[historicoTamanho] = {0};
-int16_t posicoes[historicoTamanho] = {0};
-int8_t estadoLed= 1;
-
-bool posicoesDentroDoIntervalo = false;
-bool loopGap = false;
-
-
->>>>>>> 2df324291c4b2c68fd06e39f619651992f13a779
 QTRSensors qtr;
 const uint8_t QUANT_SENSORES = 8;
 uint16_t sensorValores[QUANT_SENSORES];
@@ -71,7 +56,6 @@ int16_t erros[10]  = {};
 
 int16_t velocidadeMaximaA = 255;
 int16_t velocidadeMaximaB = 255;
-<<<<<<< HEAD
 int16_t velocidadeBaseA   = 237;
 int16_t velocidadeBaseB   = 237;
 
@@ -88,30 +72,6 @@ uint32_t ultimoEnvioTeste   = 0;
 const uint16_t INTERVALO_TESTE_MS = 100;
 
 // -------- protótipos -----------------------------------------
-=======
-int16_t velocidadeBaseA = 237;
-int16_t velocidadeBaseB = 237;
- //----------pinos do esp--------------------------------------
-// os sensores devem ser colocados na ordem
-//17,18,13,14,27,25,33,32 gpios usados sensores -entrada digital
-//5, para botao - input pullup
-//2,15,4 para led - saida pwm
-//19,21,22,23 para ponte H - saidas digitais
-//26,12 pwm motor a e b
-//16 ir led
-//-------------------------------------------------------------
-#define aHorario 23// esquerda horario  21
-#define aAntiHora 22//esquerda anti horario 19
-#define bHorario 21//direita horario 23
-#define bAntiHora  19//direita anti horario 22
-#define APWM  26 // motor a pwm
-#define BPWM  12 // motor b pwm
-#define ledRed  15
-#define ledGreen 2
-#define ledBlue  4
-#define botao  5 
-//-----------prototipagem das funções----------
->>>>>>> 2df324291c4b2c68fd06e39f619651992f13a779
 void calibracao();
 void controleMotores(int motorA, int motorB);
 void controle_PID();
@@ -450,7 +410,6 @@ void controleMotores(int motorA, int motorB) {
   }
 }
 
-<<<<<<< HEAD
 // ==============================================================
 void errosPassados(int erro) {
   for (int i = 9; i > 0; i--) erros[i] = erros[i - 1];
@@ -462,32 +421,6 @@ int errosSomatorio(int qtd) {
   for (int i = 0; i < qtd; i++) soma += erros[i];
   return soma;
 }
-=======
-void Passados (int error,int posicao)
-{
-  for (int i = historicoTamanho - 1; i > 0; i--){
-    erros[i] = erros[i-1];
-    posicoes[i] = posicoes[i-1];
-  }
-  erros[0] = error;
-  posicoes[0] = posicao;
-}
-
-void atualizarFlagPosicoes(int16_t limiteInferior, int16_t limiteSuperior) {
-  bool dentroDoIntervalo = true;
-  for (uint8_t i = 0; i < historicoTamanho; i++) {
-    if (posicoes[i] < limiteInferior || posicoes[i] > limiteSuperior) {
-      dentroDoIntervalo = false;
-      break;
-    }
-  }
-  posicoesDentroDoIntervalo = dentroDoIntervalo;
-}
-
-
-
-
->>>>>>> 2df324291c4b2c68fd06e39f619651992f13a779
 
 // ==============================================================
 void controle_PID() {
@@ -528,81 +461,7 @@ void controle_PID() {
   Serial.printf("VA=%d VB=%d Pos=%d\n", vA, vB, posicao);
 }
 
-<<<<<<< HEAD
 // ==============================================================
-=======
-void controle_PID(){
-  //-----------------leitura dos sensores-----------------
-uint16_t posicao = qtr.readLineBlack(sensorValores);
-int erro = 3500 - posicao;
-
-
-
-//se está sobre a linha preta o valor do sensor é 1000
-//se está fora da linha preta o valor do sensor é abaixo de 100
-int ValorMaximoSensores = sensorValores[0]+sensorValores[1]+sensorValores[2]+sensorValores[3]+sensorValores[4]+sensorValores[5]+sensorValores[6]+sensorValores[7];
-//------------verificação linha chegada ---------------
-// if(ValorMaximoSensores >= 7500){
-//   contadorParada++;
-//   if(contadorParada ==10){
-//   onOff = false;
-//   controleMotores(0, 0);
-//   estadoLed = 1;
-//   LedRGB(255, 0, 0,300,2); 
-//   }
-// }else{
-//   contadorParada = 0;
-// }
-//------------------verificação para Gap-----------------
-if(ValorMaximoSensores <= 700){
-  contadorSaiuDaLinha++;
-
-  if(contadorSaiuDaLinha >= 1&&(posicoesDentroDoIntervalo||loopGap
-  )){ 
-      controleMotores(velocidadeMaximaA, velocidadeMaximaB);
-      loopGap = true;
-  }
-
-}else{
-  contadorSaiuDaLinha = 0;
-  loopGap = false;
-}
-Passados(erro,posicao);
-atualizarFlagPosicoes(2000, 5000); 
-//------------------verificação 90 graus(teste)----------------
-
-//-----------------ajuste de tolerancia em linha reta-----------------
-// if (abs(erro) < 1000*Kr) {  
-//   erro = 0;
-// }
-//-----------------PID-----------------
-P = erro;
-I = errosSomatorio(5, 0);
-D = erro - ultimoErro;
-ultimoErro = erro;
-//-------------------controle de velocidade-----------------
-int VelocidadeMotor = (P*Kp) + (I*Ki) + (D*Kd);
-int VelocidadeA = velocidadeBaseA - VelocidadeMotor;
-int VelocidadeB = velocidadeBaseB + VelocidadeMotor;
-
-if (VelocidadeA > velocidadeMaximaA) VelocidadeA = velocidadeMaximaA;
-if (VelocidadeB > velocidadeMaximaB) VelocidadeB = velocidadeMaximaB;
-
-if (VelocidadeA < -velocidadeMaximaA) VelocidadeA = -velocidadeMaximaA;
-if (VelocidadeB < -velocidadeMaximaB) VelocidadeB = -velocidadeMaximaB;
-
-//----------------zona morta negativa-----------------
-if (VelocidadeA < 0 && VelocidadeA >= -(255*Kr)) VelocidadeA = 0;
-if (VelocidadeB < 0 && VelocidadeB >= -(255*Kr)) VelocidadeB = 0;
-//----------------------------------------------------
-if(loopGap == false){
-  controleMotores(VelocidadeA, VelocidadeB);
-}
-Serial.printf("VA=%d VB=%d Pos=%d loop = %d intervalo =%d\n ", VelocidadeA, VelocidadeB, posicao, loopGap, posicoesDentroDoIntervalo);
-}
-
-
->>>>>>> 2df324291c4b2c68fd06e39f619651992f13a779
 void calibracao() {
   estadoLed = 3;
   Serial.println("Calibrando...");
@@ -630,7 +489,6 @@ void LedRGB(int r, int g, int b, int tempo, int loop) {
     }
   }
 }
-<<<<<<< HEAD
 
 void tarefaRGB(void* param) {
   while (true) {
@@ -663,5 +521,3 @@ void tarefaRGB(void* param) {
     vTaskDelay(10/portTICK_PERIOD_MS);
   }
 }
-=======
->>>>>>> 2df324291c4b2c68fd06e39f619651992f13a779
