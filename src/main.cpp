@@ -54,6 +54,12 @@ float Kp = 0.138f, Ki = 0.0f, Kd = 3.352f, Kr = 0.0f;
 int16_t ultimoErro = 0;
 int16_t erros[10]  = {};
 
+// --- melhorias de velocidade e PID (ajustaveis por BLE; 0 = comportamento original) ---
+float Kv          = 0.0f;   // freia na curva: vel = base*(1 - Kv*|erro|/3500). Comando BLE: Vk=
+float fatorMinVel = 0.35f;  // piso do fator de velocidade (na curva mais fechada). Comando BLE: Vm=
+float alphaD      = 0.0f;   // filtro do termo D (0 = D puro/original; 0.5~0.7 suaviza). Comando BLE: Df=
+float Dfilt       = 0.0f;   // estado do filtro de D
+
 int16_t velocidadeMaximaA = 255;
 int16_t velocidadeMaximaB = 255;
 int16_t velocidadeBaseA   = 237;
@@ -323,6 +329,13 @@ void processarComando(const String& cmd) {
   int idxKr   = cmd.indexOf("Kr=");
   int idxVmax = cmd.indexOf("Vmax=");
   int idxVmin = cmd.indexOf("Vmin=");
+  int idxVk   = cmd.indexOf("Vk=");
+  int idxVm   = cmd.indexOf("Vm=");
+  int idxDf   = cmd.indexOf("Df=");
+
+  if (idxVk >= 0) { Kv = cmd.substring(idxVk + 3).toFloat(); Serial.printf("[OK] Kv=%.3f\n", Kv); }
+  if (idxVm >= 0) { fatorMinVel = cmd.substring(idxVm + 3).toFloat(); Serial.printf("[OK] fatorMinVel=%.3f\n", fatorMinVel); }
+  if (idxDf >= 0) { alphaD = constrain(cmd.substring(idxDf + 3).toFloat(), 0.0f, 0.95f); Serial.printf("[OK] alphaD=%.3f\n", alphaD); }
 
   if (idxVmax >= 0 && idxVmin > idxVmax) {
     velocidadeMaximaA = velocidadeMaximaB =
@@ -340,7 +353,7 @@ void processarComando(const String& cmd) {
     Serial.printf("[OK] PID atualizado: Kp=%.3f Ki=%.3f Kd=%.3f Kr=%.3f\n", Kp, Ki, Kd, Kr);
   } else if (idxKp >= 0 && modoAtual != MODO_PID) {
     Serial.println("[IGNORADO] Constantes PID recebidas fora do modo PID");
-  } else if (idxKp < 0 && idxVmax < 0) {
+  } else if (idxKp < 0 && idxVmax < 0 && idxVk < 0 && idxVm < 0 && idxDf < 0) {
     Serial.println("[DESCONHECIDO] Comando nao reconhecido: " + cmd);
   }
 }
@@ -453,15 +466,24 @@ void controle_PID() {
 
   int P = erro;
   int I = errosSomatorio(5);
-  int D = erro - ultimoErro;
+  int Draw = erro - ultimoErro;
+  Dfilt = alphaD * Dfilt + (1.0f - alphaD) * (float)Draw;   // alphaD=0 => Dfilt = Draw (igual ao original)
+  int D = (int)Dfilt;
   ultimoErro = erro;
 
   int correcao = (int)(P * Kp + I * Ki + D * Kd);
-  int vA = constrain(velocidadeBaseA - correcao, -velocidadeMaximaA, velocidadeMaximaA);
-  int vB = constrain(velocidadeBaseB + correcao, -velocidadeMaximaB, velocidadeMaximaB);
+
+  // velocidade adaptativa: quanto mais fechada a curva (|erro| grande), mais devagar. Kv=0 => base fixa.
+  float fator = 1.0f - Kv * (abs(erro) / 3500.0f);
+  if (fator < fatorMinVel) fator = fatorMinVel;
+  int baseA = (int)(velocidadeBaseA * fator);
+  int baseB = (int)(velocidadeBaseB * fator);
+
+  int vA = constrain(baseA - correcao, -velocidadeMaximaA, velocidadeMaximaA);
+  int vB = constrain(baseB + correcao, -velocidadeMaximaB, velocidadeMaximaB);
 
   controleMotores(vA, vB);
-  Serial.printf("VA=%d VB=%d Pos=%d\n", vA, vB, posicao);
+  Serial.printf("VA=%d VB=%d Pos=%d fator=%.2f\n", vA, vB, posicao, fator);
 }
 
 // ==============================================================
