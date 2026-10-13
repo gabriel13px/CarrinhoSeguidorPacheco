@@ -9,7 +9,7 @@ Ganhador da Corrida da 3ª competição Liga LARI e da Dtech.
 ## ⚠️ Branch `caotico_neutro` — leia antes de testar
 
 Branch de trabalho, **isolada e sem push**. A `main` não foi tocada. Para testar:
-`git checkout caotico_neutro`, depois `pio run -t upload`.
+`git checkout caotico_neutro`, depois `pio run -t upload` (ou `./flash.sh`, que compila, grava e abre o monitor).
 
 **O firmware NÃO foi compilado com PlatformIO neste ambiente** — só checagem de sintaxe. O primeiro
 `pio run` de vocês é o teste de verdade; se der erro, mandem a saída inteira (costuma ser de uma linha).
