@@ -50,7 +50,7 @@ bool calibracaoAtiva = false;
 int8_t estadoLed     = 1;
 
 // -------- PID -------------------------------------------------
-float Kp = 0.28f, Ki = 0.015f, Kd = 3.68f, Kr = 0.0f;
+float Kp = 0.138f, Ki = 0.0f, Kd = 3.352f, Kr = 0.0f;
 int16_t ultimoErro = 0;
 int16_t erros[10]  = {};
 
@@ -80,6 +80,7 @@ void tarefaRGB(void* param);
 void processarComando(const String& cmd);
 void executarManual();
 void enviarDadosTeste();
+bool lerBotaoIR();
 // -------- BLE -------------------------------------------------
 BLEServer*         pServer   = nullptr;
 BLECharacteristic* pTxChar   = nullptr; 
@@ -186,13 +187,14 @@ void setup() {
   //pinos sensores - - - - - - - -
   qtr.setSensorPins((const uint8_t[]){15,16,17,18,8,9,10,11}, QUANT_SENSORES);
   qtr.setEmitterPin(PIN_EMISSOR_LINHA);
-  qtr.setTimeout(2600);
+  qtr.setTimeout(2650);
 
   controleMotores(0, 0);
   LedRGB(255, 0, 0, 0, 1);
 
   xTaskCreatePinnedToCore(tarefaRGB, "tarefaRGB", 2048, NULL, 1, NULL, 1);
   Serial.println("[BOOT] Setup concluido — aguardando BLE");
+    delay(1000);
 }
 
 void loop() {
@@ -208,10 +210,11 @@ void loop() {
       if (!calibracaoAtiva) LedRGB(255, 0, 0, 0, 1);
       else if (!onOff)      LedRGB(255, 255, 255, 0, 1);
     }
+  
   }
 
   // ── 2. Botão físico ───────────────────────────────────────
-  if (digitalRead(PIN_EMISSOR_CONTROLE) == LOW) {
+  if ( digitalRead(0) == LOW) {
     if (!calibracaoAtiva && !onOff && modoAtual == MODO_PID) {
       calibracao();
     } else if (calibracaoAtiva && modoAtual == MODO_PID) {
@@ -431,20 +434,20 @@ void controle_PID() {
   int32_t soma = 0;
   for (uint8_t i = 0; i < QUANT_SENSORES; i++) soma += sensorValores[i];
 
-  if (soma <= 700) {
-    contadorSaiuLinha++;
-    if (contadorSaiuLinha > 10) {
-      if (!warnOfflineSent) {
-        bleSend("WARN:OFFLINE\n");
-        warnOfflineSent = true;
-      }
-      if (ultimoErro > 0) controleMotores(velocidadeMaximaA, 0);
-      else                controleMotores(0, velocidadeMaximaB);
-    }
-    return;
-  }
-  contadorSaiuLinha = 0;
-  warnOfflineSent   = false;
+  // if (soma <= 700) {
+  //   contadorSaiuLinha++;
+  //   if (contadorSaiuLinha > 10) {
+  //     if (!warnOfflineSent) {
+  //       bleSend("WARN:OFFLINE\n");
+  //       warnOfflineSent = true;
+  //     }
+  //     if (ultimoErro > 0) controleMotores(velocidadeMaximaA, 0);
+  //     else                controleMotores(0, velocidadeMaximaB);
+  //   }
+  //   return;
+  // }
+  // contadorSaiuLinha = 0;
+  // warnOfflineSent   = false;
 
   if (abs(erro) < (int)(1000 * Kr)) erro = 0;
 
@@ -520,4 +523,36 @@ void tarefaRGB(void* param) {
     }
     vTaskDelay(10/portTICK_PERIOD_MS);
   }
+
+}
+
+bool lerBotaoIR() {
+  static uint32_t ultimaBorda   = 0;
+  static uint8_t  contadorBordas = 0;
+  static bool     nivelAnterior  = HIGH;
+  static bool     jaConfirmado   = false;
+
+  bool nivelAtual = digitalRead(PIN_EMISSOR_CONTROLE);
+  bool acionado = false;
+  uint32_t agora = millis();
+
+  if (nivelAtual != nivelAnterior) {
+    contadorBordas++;
+    ultimaBorda = agora;
+    nivelAnterior = nivelAtual;
+  }
+
+  // Rajada com bastante atividade + silencio depois = foi um frame de verdade
+  if (contadorBordas > 10 && (agora - ultimaBorda > 50) && !jaConfirmado) {
+    acionado = true;
+    jaConfirmado = true;
+  }
+
+  // Ficou quieto por um tempo maior: reseta e libera pra proximo aperto
+  if (agora - ultimaBorda > 200) {
+    contadorBordas = 0;
+    jaConfirmado = false;
+  }
+
+  return acionado;
 }
