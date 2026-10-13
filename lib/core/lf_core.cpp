@@ -160,10 +160,11 @@ class Core {
       if (v > 500) nb++;
     }
     st_.n_black = nb;
-    // histerese: só considera a linha PERDIDA quando o sinal cai bem (mx < 200);
-    // só reconhece de volta quando sobe bem (mx > 400). Evita piscar FOLLOW<->LOST com ruído.
-    if (mx > 400) st_.on_line = 1;
-    else if (mx < 200) st_.on_line = 0;
+    // histerese: perde a linha só quando o sinal cai bem (mx < on_line_lo) e reconhece de volta
+    // quando sobe (mx > on_line_hi). Limiares baixos para reconhecer a linha mesmo com calibração mediana,
+    // senão ele cruza a linha no modo perdido e não a reconhece (fica girando preso).
+    if (mx > g_.on_line_hi) st_.on_line = 1;
+    else if (mx < g_.on_line_lo) st_.on_line = 0;
     if (st_.on_line && sum > 0) st_.e = ((float)wsum / (float)sum - 3500.0f) / 3500.0f;
     float de = (st_.e - st_.e_prev) / dt;
     st_.e_prev = st_.e;
@@ -641,6 +642,7 @@ void lf_default_gains(lf_gains_t* g) {
   g->min_curve_angle = 0.40f; g->min_straight_dist = 0.10f;
   g->zz_hyst = 0.35f; g->zz_amp = 0.7f; g->zz_max_turn = 0.35f; g->zz_window = 0.6f; g->zz_exit_time = 0.12f;
   g->cross_hold_time = 0.05f; g->cross_max_time = 0.25f; g->lost_time = 0.15f;
+  g->on_line_hi = 280; g->on_line_lo = 150;
   g->min_lap_time = 8.0f; g->angle_tol = 0.5f;
   g->zz_min_swaps = 3; g->bar_min_black = 7; g->laps = 0; g->cycle_k = 7; g->cycle_no_bar = 1; g->use_map = 1;
 }

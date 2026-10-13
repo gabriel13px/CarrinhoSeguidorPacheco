@@ -137,7 +137,7 @@ const GainField GAIN_FIELDS[] = {
   GF(a_lat_max), GF(a_brake), GF(brake_margin), GF(k_pwm2v), GF(tau_motor), GF(lap_boost), GF(lap_backoff), GF(boost_max), GF(boost_min), GF(lost_tol),
   GF(kappa_curve), GF(kappa_straight), GF(t_curve), GF(t_straight), GF(min_seg_time), GF(min_curve_angle),
   GF(min_straight_dist), GF(zz_hyst), GF(zz_amp), GF(zz_max_turn), GF(zz_window), GF(zz_exit_time),
-  GF(cross_hold_time), GF(cross_max_time), GF(lost_time), GF(min_lap_time), GF(angle_tol),
+  GF(cross_hold_time), GF(cross_max_time), GF(lost_time), GF(on_line_hi), GF(on_line_lo), GF(min_lap_time), GF(angle_tol),
   GU(zz_min_swaps), GU(bar_min_black), GU(laps), GU(cycle_k), GU(cycle_no_bar), GU(use_map),
 };
 const int N_GAIN_FIELDS = sizeof(GAIN_FIELDS) / sizeof(GAIN_FIELDS[0]);

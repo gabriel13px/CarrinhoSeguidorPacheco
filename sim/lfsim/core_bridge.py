@@ -33,7 +33,7 @@ GAIN_F = ['kp', 'ki', 'kd', 'kgyro', 'kp_v', 'kv_e', 'react_kappa', 'kh', 'kh_gy
           'a_lat_max', 'a_brake', 'brake_margin', 'k_pwm2v', 'tau_motor', 'lap_boost', 'lap_backoff', 'boost_max', 'boost_min', 'lost_tol',
           'kappa_curve', 'kappa_straight', 't_curve', 't_straight', 'min_seg_time', 'min_curve_angle', 'min_straight_dist',
           'zz_hyst', 'zz_amp', 'zz_max_turn', 'zz_window',
-          'zz_exit_time', 'cross_hold_time', 'cross_max_time', 'lost_time', 'min_lap_time', 'angle_tol']
+          'zz_exit_time', 'cross_hold_time', 'cross_max_time', 'lost_time', 'on_line_hi', 'on_line_lo', 'min_lap_time', 'angle_tol']
 GAIN_U8 = ['zz_min_swaps', 'bar_min_black', 'laps', 'cycle_k', 'cycle_no_bar', 'use_map']
 
 

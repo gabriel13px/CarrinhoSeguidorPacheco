@@ -73,6 +73,7 @@ typedef struct {
   float cross_hold_time;       // s de heading hold após a barra sumir
   float cross_max_time;        // s máximo em CROSS
   float lost_time;             // s sem linha para entrar em LOST
+  float on_line_hi, on_line_lo;  // histerese 0..1000 para reconhecer/perder a linha (mx dos sensores)
   float min_lap_time;          // s mínimo antes de aceitar fechamento de volta
   float angle_tol;             // rad de tolerância ao casar curvas com o mapa
   uint8_t zz_min_swaps;        // trocas de lado para confirmar zigue-zague
