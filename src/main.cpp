@@ -31,7 +31,9 @@
 #define PIN_LED_R         13
 #define PIN_LED_G         14
 #define PIN_LED_B         12
-#define PIN_EMISSOR_CONTROLE 21     // botão
+#define PIN_EMISSOR_CONTROLE 21     // sensor IR (NÃO é um botão limpo: dispara sozinho ao sair da pista)
+#define PIN_BOTAO            0      // botão BOOT (confiável) usado como liga/calibra
+#define USAR_IR_COMO_BOTAO   0      // 1 = também aceita o IR do GPIO21 como botão (instável)
 #define PIN_EMISSOR_LINHA    7      // emissor IR do array
 #define PIN_NEOPIXEL      48
 #define PIN_I2C_SDA        2
@@ -204,7 +206,7 @@ void setup() {
   pinMode(PIN_A_HORARIO, OUTPUT); pinMode(PIN_A_ANTIHORARIO, OUTPUT);
   pinMode(PIN_B_HORARIO, OUTPUT); pinMode(PIN_B_ANTIHORARIO, OUTPUT);
   pinMode(PIN_EMISSOR_CONTROLE, INPUT_PULLUP);
-  pinMode(0, INPUT_PULLUP);                 // GPIO0 (botao BOOT): botao de reserva, o sensor IR do GPIO21 é instável
+  pinMode(PIN_BOTAO, INPUT_PULLUP);         // GPIO0 (botao BOOT): botao de liga/calibra (o IR do GPIO21 é instável)
 
   // sensores de linha: 1 amostra por sensor para caber no período do loop
   qtr.setTypeAnalog();
@@ -231,11 +233,15 @@ void loop() {
   static bool botaoAnterior = false;
 
   // botão: calibra (1º toque) / liga-desliga (toques seguintes)
-  bool botao = digitalRead(PIN_EMISSOR_CONTROLE) == LOW || digitalRead(0) == LOW;   // IR (GPIO21) ou botao BOOT (GPIO0)
+  bool botao = digitalRead(PIN_BOTAO) == LOW;
+#if USAR_IR_COMO_BOTAO
+  botao = botao || digitalRead(PIN_EMISSOR_CONTROLE) == LOW;
+#endif
   if (botao && !botaoAnterior && modoAtual == MODO_PID) {
     if (!calibracaoAtiva) calibracao();
     else {
       onOff = !onOff;
+      Serial.printf("[BOTAO] toggle -> onOff=%d\n", onOff);   // se isto aparecer sozinho ao sair da pista, é ruido de botao
       if (onOff) { LedRGB(0, 255, 0, 150, 2); lf_start(core); ultimaVolta = 1; inicioVoltaMs = millis(); perdasVolta = 0; bleSend("STATE:ON\n"); }
       else { lf_stop(core); controleMotores(0, 0); LedRGB(255, 0, 0, 200, 2); bleSend("STATE:OFF\n"); }
     }
