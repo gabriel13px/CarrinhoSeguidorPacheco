@@ -204,6 +204,7 @@ void setup() {
   pinMode(PIN_A_HORARIO, OUTPUT); pinMode(PIN_A_ANTIHORARIO, OUTPUT);
   pinMode(PIN_B_HORARIO, OUTPUT); pinMode(PIN_B_ANTIHORARIO, OUTPUT);
   pinMode(PIN_EMISSOR_CONTROLE, INPUT_PULLUP);
+  pinMode(0, INPUT_PULLUP);                 // GPIO0 (botao BOOT): botao de reserva, o sensor IR do GPIO21 é instável
 
   // sensores de linha: 1 amostra por sensor para caber no período do loop
   qtr.setTypeAnalog();
@@ -220,6 +221,7 @@ void setup() {
   LedRGB(255, 0, 0, 0, 1);
   xTaskCreatePinnedToCore(tarefaRGB, "tarefaRGB", 2048, NULL, 1, NULL, 1);
   Serial.println("[BOOT] pronto");
+  delay(1000);                              // estabiliza antes de ler os botoes (GPIO0 é pino de BOOT)
 }
 
 // -------- loop de controle a taxa fixa ----------------------------
@@ -229,7 +231,7 @@ void loop() {
   static bool botaoAnterior = false;
 
   // botão: calibra (1º toque) / liga-desliga (toques seguintes)
-  bool botao = digitalRead(PIN_EMISSOR_CONTROLE) == LOW;
+  bool botao = digitalRead(PIN_EMISSOR_CONTROLE) == LOW || digitalRead(0) == LOW;   // IR (GPIO21) ou botao BOOT (GPIO0)
   if (botao && !botaoAnterior && modoAtual == MODO_PID) {
     if (!calibracaoAtiva) calibracao();
     else {
