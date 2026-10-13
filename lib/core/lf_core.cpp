@@ -160,7 +160,10 @@ class Core {
       if (v > 500) nb++;
     }
     st_.n_black = nb;
-    st_.on_line = (mx > 350) ? 1 : 0;
+    // histerese: só considera a linha PERDIDA quando o sinal cai bem (mx < 200);
+    // só reconhece de volta quando sobe bem (mx > 400). Evita piscar FOLLOW<->LOST com ruído.
+    if (mx > 400) st_.on_line = 1;
+    else if (mx < 200) st_.on_line = 0;
     if (st_.on_line && sum > 0) st_.e = ((float)wsum / (float)sum - 3500.0f) / 3500.0f;
     float de = (st_.e - st_.e_prev) / dt;
     st_.e_prev = st_.e;

@@ -158,6 +158,17 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("[BOOT] SeguidorPacheco (lf_core)");
+  // motivo do ultimo reset: se o carrinho "desliga" ao sair da pista, veja aqui o que apareceu.
+  // BROWNOUT = queda de tensao (motor puxando corrente / bateria fraca); TASK_WDT/INT_WDT = travou;
+  // PANIC = crash; POWERON/SW = normal.
+  { esp_reset_reason_t r = esp_reset_reason();
+    const char* m = r == ESP_RST_BROWNOUT ? "BROWNOUT (queda de tensao)" :
+                    r == ESP_RST_TASK_WDT ? "TASK_WDT (travou)" :
+                    r == ESP_RST_INT_WDT  ? "INT_WDT (travou)" :
+                    r == ESP_RST_PANIC    ? "PANIC (crash)" :
+                    r == ESP_RST_POWERON  ? "POWERON (normal)" :
+                    r == ESP_RST_SW       ? "SW (normal)" : "outro";
+    Serial.printf("[BOOT] motivo do reset: %s (%d)\n", m, (int)r); }
 
   neopixel.begin(); neopixel.setBrightness(255); neopixel.show();
 
