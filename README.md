@@ -4,6 +4,53 @@ Seguidor de linha do time Pachecoins (Liga LARI). ESP32-S3 + array QTR-8A + pont
 
 Ganhador da Corrida da 3ª competição Liga LARI e da Dtech.
 
+---
+
+## ⚠️ Branch `caotico_neutro` — leia antes de testar
+
+Branch de trabalho, **isolada e sem push**. A `main` não foi tocada. Para testar:
+`git checkout caotico_neutro`, depois `pio run -t upload`.
+
+**O firmware NÃO foi compilado com PlatformIO neste ambiente** — só checagem de sintaxe. O primeiro
+`pio run` de vocês é o teste de verdade; se der erro, mandem a saída inteira (costuma ser de uma linha).
+
+### O que mudou nesta branch (vs. o que estava no carrinho)
+
+1. **`GG`/`PM` não resetam mais o ESP.** O crash era estouro de pilha da task do Bluetooth (`Stack canary
+   ... BTC_TASK`): as respostas longas eram enviadas de dentro do callback BLE. Agora o comando só marca uma
+   flag e o envio sai no `loop()`, com pausa entre linhas.
+2. **Ele não "desliga" mais ao sair da linha.** Era `lost_time` curto demais (0,03 s) + recuperação parada.
+   Agora `lost_time` = 0,15 s e, ao perder a linha, ele **avança em arco** pro último lado visto até
+   reencontrar, como o código antigo. Só para com botão, `OF` ou chegada (`G:laps=N`). Ajustável por BLE:
+   `G:lost_time=...` e `G:v_lost=...`.
+3. **A telemetria de teste mudou** (o app precisa acompanhar). Com o carrinho parado no modo teste (`TS`),
+   agora é `T:modo,seg,pos_linha,rumo,gyro_cru,acc_x,acc_y,omega` — o que serve parado é o giro e o
+   acelerômetro, não `v_est` (que parado é sempre 0). A telemetria de corrida `R:` e o `LAP:` são separados e
+   continuam iguais.
+4. **Pinos e orientação** da fiação real já entraram como padrão: motor A/B (`A_HOR=37 A_ANTI=36 B_HOR=38
+   B_ANTI=47`), sensores `{11,10,9,8,18,17,16,15}`, `BMI160=0x68`, `IMU_GYRO_SIGN=-1`. **Ainda não validado em
+   pista** — confira no modo teste (abaixo).
+
+### Primeiro teste, para destravar ("não dava uma volta")
+
+Isolem o problema antes de ligar mapa e zigue-zague:
+1. `TS` e confira a IMU: girando o carrinho pra **esquerda**, `gyro_cru` tem que ficar **positivo**; empurrando
+   de lado pra esquerda, `acc_y` positivo. Se não, ajuste `IMU_GYRO_SIGN` / eixos em `src/main.cpp`.
+2. `MA` (manual): `MF=120` vai pra frente, `ML=120` gira pra esquerda. Se trocado, `MOTOR_LEFT_IS_A` em `src/main.cpp`.
+3. `PI`, `G:use_map=0`, `G:v_base=70`, calibra (botão), 2 s parado, liga. **Se nesse modo ele seguir a linha**,
+   o núcleo e a orientação estão ok e o resto é só ajuste de ganho. Se nem assim, é orientação (giro ou motor).
+
+Depois que seguir limpo em PID puro: `G:use_map=1` liga o mapa (1ª volta mapeia, demais correm rápido).
+
+### Comandos BLE novos (além dos antigos `PI/MA/TS/ON/OF/MF...`)
+
+`G:nome=valor` muda qualquer ganho na hora · `GG` lista os ganhos · `GS` grava na NVS · `TL=1`/`TL=0`
+liga/desliga telemetria de corrida · `SV`/`LD`/`CL`/`PM` salva/carrega/apaga/imprime o mapa · `LB` fecha volta
+manualmente. Tabela completa de ganhos e receitas por tipo de pista em
+[`docs/MANUAL_DO_CARRINHO.md`](docs/MANUAL_DO_CARRINHO.md).
+
+---
+
 Manuais: [`docs/O_QUE_FOI_FEITO.md`](docs/O_QUE_FOI_FEITO.md) (resumo técnico) e
 [`docs/MANUAL_DO_CARRINHO.md`](docs/MANUAL_DO_CARRINHO.md) (o que mudou, como compilar, conferir, correr e ajustar).
 
